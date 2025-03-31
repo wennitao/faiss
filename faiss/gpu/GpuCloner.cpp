@@ -119,6 +119,7 @@ Index* ToCPUCloner::clone_Index(const Index* index) {
 }
 
 faiss::Index* index_gpu_to_cpu(const faiss::Index* gpu_index) {
+    printf ("index_gpu_to_cpu\n");
     ToCPUCloner cl;
     return cl.clone_Index(gpu_index);
 }
@@ -172,6 +173,7 @@ Index* ToGpuCloner::clone_Index(const Index* index) {
         GpuIndexIVFFlat* res = new GpuIndexIVFFlat(
                 provider, ifl->d, ifl->nlist, ifl->metric_type, config);
         if (reserveVecs > 0 && ifl->ntotal == 0) {
+            printf ("reserveVecs=%ld\n", reserveVecs);
             res->reserveMemory(reserveVecs);
         }
 
