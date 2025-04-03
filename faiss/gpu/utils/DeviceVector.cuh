@@ -104,6 +104,8 @@ class DeviceVector {
                 reserveSize = getNewCapacity_(reserveSize);
             }
 
+            printf ("DeviceVector::append: reserving %zu elements (from %zu)\n",
+                    reserveSize, capacity_);
             mem = reserve(reserveSize, stream);
 
             int dev = getDeviceForAddress(d);

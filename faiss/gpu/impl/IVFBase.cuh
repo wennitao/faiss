@@ -71,6 +71,9 @@ class IVFBase {
     /// Copy all inverted lists from a CPU representation to ourselves
     virtual void copyInvertedListsFrom(const InvertedLists* ivf);
 
+    /// Copy all inverted lists from a CPU representation to ourselves without realloc
+    virtual void copyInvertedListsFromNoRealloc(const InvertedLists* ivf);
+
     /// Copy all inverted lists from ourselves to a CPU representation
     virtual void copyInvertedListsTo(InvertedLists* ivf);
 

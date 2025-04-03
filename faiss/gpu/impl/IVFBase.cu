@@ -330,6 +330,10 @@ void IVFBase::copyInvertedListsFrom(const InvertedLists* ivf) {
     }
 }
 
+void IVFBase::copyInvertedListsFromNoRealloc(const InvertedLists* ivf) {
+    
+}
+
 void IVFBase::copyInvertedListsTo(InvertedLists* ivf) {
     for (idx_t i = 0; i < numLists_; ++i) {
         auto listIndices = getListIndices(i);
