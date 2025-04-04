@@ -132,6 +132,17 @@ class IVFBase {
             const idx_t* indices,
             idx_t numVecs);
 
+    /// Adds a set of codes and indices to a list, with optimized memory allocation
+    /// to avoid frequent reallocations during batch processing
+    virtual void addEncodedVectorsToList_(
+            idx_t listId,
+            // resident on the host
+            const void* codes,
+            // resident on the host
+            const idx_t* indices,
+            idx_t numVecs,
+            size_t preReserveSize);
+
     /// Performs search in a CPU or GPU coarse quantizer for IVF cells,
     /// returning residuals as well if necessary
     void searchCoarseQuantizer_(

@@ -209,6 +209,7 @@ class DeviceVector {
     // Returns true if we actually reallocated memory
     bool reserve(size_t newCapacity, cudaStream_t stream) {
         if (newCapacity <= capacity_) {
+            printf ("DeviceVector::reserve: no reallocation needed\n");
             return false;
         }
 
