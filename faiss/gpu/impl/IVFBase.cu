@@ -17,6 +17,7 @@
 #include <faiss/gpu/impl/IVFBase.cuh>
 #include <faiss/gpu/utils/CopyUtils.cuh>
 #include <faiss/gpu/utils/DeviceDefs.cuh>
+#include <faiss/gpu/utils/DeviceVector.cuh>
 #include <faiss/gpu/utils/HostTensor.cuh>
 #include <faiss/gpu/utils/ThrustUtils.cuh>
 #include <limits>
@@ -330,6 +331,56 @@ void IVFBase::copyInvertedListsFrom(const InvertedLists* ivf) {
     }
 }
 
+void IVFBase::reserveInvertedListsDataMemory(const InvertedLists* ivf) {
+    idx_t nlist = ivf ? ivf->nlist : 0;
+    size_t reserveSize = 0;
+    for (idx_t i = 0; i < nlist; ++i) {
+        reserveSize += getGpuVectorsEncodingSize_(ivf->list_size(i));
+    }
+    auto allocInfo = AllocInfo(AllocType::IVFLists, getCurrentDevice(), space_, resources_->getDefaultStreamCurrentDevice());
+    ivfListDataReservation_ = resources_->allocMemoryHandle(AllocRequest(allocInfo, reserveSize));
+}
+
+void IVFBase::reserveInvertedListsIndexMemory(const InvertedLists* ivf) {
+    idx_t nlist = ivf ? ivf->nlist : 0;
+    size_t reserveSize = 0;
+    for (idx_t i = 0; i < nlist; ++i) {
+        reserveSize += ivf->list_size(i) * sizeof(idx_t);
+    }
+    auto allocInfo = AllocInfo(AllocType::IVFLists, getCurrentDevice(), space_, resources_->getDefaultStreamCurrentDevice());
+    ivfListIndexReservation_ = resources_->allocMemoryHandle(AllocRequest(allocInfo, reserveSize));
+    printf ("ivfListIndexReservation_ size: %zu\n", ivfListIndexReservation_.size);
+}
+
+void IVFBase::copyInvertedListsFromNoRealloc(const InvertedLists* ivf) {
+    idx_t nlist = ivf ? ivf->nlist : 0;
+    if (nlist == 0) {
+        return;
+    }
+    reserveInvertedListsDataMemory(ivf);
+    reserveInvertedListsIndexMemory(ivf);
+
+    size_t offsetData = 0;
+    size_t offsetIndex = 0;
+    
+    for (idx_t i = 0; i < nlist; ++i) {
+        size_t curDataSize = getGpuVectorsEncodingSize_(ivf->list_size(i));
+        size_t curIndexSize = ivf->list_size(i) * sizeof(idx_t);
+        // auto curAlloc = GpuMemoryReservation(resources_, ivfListDataReservation_.device, ivfListDataReservation_.stream, (uint8_t*) ivfListDataReservation_.get() + offset, curSize);
+
+        auto& listCodes = deviceListData_[i];
+        listCodes->data.assignReservedMemoryPointer((uint8_t*) ivfListDataReservation_.get() + offsetData, curDataSize);
+        offsetData += curDataSize;
+
+        auto& listIndices = deviceListIndices_[i];
+        listIndices->data.assignReservedMemoryPointer((uint8_t*) ivfListIndexReservation_.get() + offsetIndex, curIndexSize);
+        offsetIndex += curIndexSize;
+
+        addEncodedVectorsToList_(
+                i, ivf->get_codes(i), ivf->get_ids(i), ivf->list_size(i));
+    }
+}
+
 void IVFBase::copyInvertedListsTo(InvertedLists* ivf) {
     for (idx_t i = 0; i < numLists_; ++i) {
         auto listIndices = getListIndices(i);
@@ -423,6 +474,7 @@ void IVFBase::addIndicesFromCpu_(
         // count as well
         listIndices->numVecs = numVecs;
     } else if (indicesOptions_ == INDICES_64_BIT) {
+        printf ("addIndicesFromCpu_ 64-bit\n");
         listIndices->data.append(
                 (uint8_t*)indices,
                 numVecs * sizeof(idx_t),

@@ -147,8 +147,8 @@ void GpuIndexIVFFlat::copyFrom(const faiss::IndexIVFFlat* index) {
     updateQuantizer();
 
     // Copy all of the IVF data
-    index_->copyInvertedListsFrom(index->invlists);
-    // index_->copyInvertedListsFromNoRealloc(index->invlists);
+    // index_->copyInvertedListsFrom(index->invlists);
+    index_->copyInvertedListsFromNoRealloc(index->invlists);
 }
 
 void GpuIndexIVFFlat::copyTo(faiss::IndexIVFFlat* index) const {

@@ -71,6 +71,9 @@ class IVFBase {
     /// Copy all inverted lists from a CPU representation to ourselves
     virtual void copyInvertedListsFrom(const InvertedLists* ivf);
 
+    virtual void reserveInvertedListsDataMemory(const InvertedLists* ivf);
+    virtual void reserveInvertedListsIndexMemory(const InvertedLists* ivf);
+
     /// Copy all inverted lists from a CPU representation to ourselves without realloc
     virtual void copyInvertedListsFromNoRealloc(const InvertedLists* ivf);
 
@@ -131,17 +134,6 @@ class IVFBase {
             // resident on the host
             const idx_t* indices,
             idx_t numVecs);
-
-    /// Adds a set of codes and indices to a list, with optimized memory allocation
-    /// to avoid frequent reallocations during batch processing
-    virtual void addEncodedVectorsToList_(
-            idx_t listId,
-            // resident on the host
-            const void* codes,
-            // resident on the host
-            const idx_t* indices,
-            idx_t numVecs,
-            size_t preReserveSize);
 
     /// Performs search in a CPU or GPU coarse quantizer for IVF cells,
     /// returning residuals as well if necessary
@@ -250,6 +242,9 @@ class IVFBase {
 
     /// What memory space our inverted list storage is in
     const MemorySpace space_;
+
+    GpuMemoryReservation ivfListDataReservation_;
+    GpuMemoryReservation ivfListIndexReservation_;
 
     /// Device representation of all inverted list data
     /// id -> data

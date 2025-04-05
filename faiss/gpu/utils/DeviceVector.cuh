@@ -40,13 +40,17 @@ constexpr size_t kDeviceVector_1_25x_Limit = 128 * 1024 * 1024;
 template <typename T>
 class DeviceVector {
    public:
-    DeviceVector(GpuResources* res, AllocInfo allocInfo)
-            : num_(0), capacity_(0), res_(res), allocInfo_(allocInfo) {
+    DeviceVector(GpuResources* res, AllocInfo allocInfo, bool useOwnGpuMemoryReservation_ = true)
+            : num_(0), capacity_(0), res_(res), allocInfo_(allocInfo), useOwnGpuMemoryReservation_(useOwnGpuMemoryReservation_) {
         FAISS_ASSERT(res_);
     }
 
     ~DeviceVector() {
-        clear();
+        if (useOwnGpuMemoryReservation_) {
+            printf ("DeviceVector::~DeviceVector: clearing\n");
+            printf ("num_: %zu, capacity_: %zu\n", num_, capacity_);
+            clear();
+        }
     }
 
     // Clear all allocated memory; reset to zero size
@@ -63,10 +67,18 @@ class DeviceVector {
         return capacity_;
     }
     T* data() {
-        return (T*)alloc_.data;
+        if (!useOwnGpuMemoryReservation_) {
+            return (T*)data_;
+        } else {
+            return (T*)alloc_.data;
+        }
     }
     const T* data() const {
-        return (const T*)alloc_.data;
+        if (!useOwnGpuMemoryReservation_) {
+            return (const T*)data_;
+        } else {
+            return (const T*)alloc_.data;
+        }
     }
 
     template <typename OutT>
@@ -110,6 +122,7 @@ class DeviceVector {
 
             int dev = getDeviceForAddress(d);
             if (dev == -1) {
+                printf ("DeviceVector::append: cudaMemcpyHostToDevice\n");
                 CUDA_VERIFY(cudaMemcpyAsync(
                         data() + num_,
                         d,
@@ -218,6 +231,16 @@ class DeviceVector {
         return true;
     }
 
+    void assignReservedMemoryPointer (void *p, size_t newCapacity) {
+        if (newCapacity <= capacity_) {
+            printf ("DeviceVector::assignReservedMemory: no reallocation needed\n");
+            return;
+        }
+        data_ = p;
+        capacity_ = newCapacity;
+        useOwnGpuMemoryReservation_ = false;
+    }
+
    private:
     void realloc_(size_t newCapacity, cudaStream_t stream) {
         FAISS_ASSERT(num_ <= newCapacity);
@@ -262,6 +285,9 @@ class DeviceVector {
 
     /// Our current memory allocation, if any
     GpuMemoryReservation alloc_;
+
+    bool useOwnGpuMemoryReservation_ = true;
+    void *data_ = nullptr;
 
     /// current valid number of T present
     size_t num_;
