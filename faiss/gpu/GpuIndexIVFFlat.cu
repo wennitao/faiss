@@ -108,6 +108,53 @@ void GpuIndexIVFFlat::reserveMemory(size_t numVecs) {
     }
 }
 
+void GpuIndexIVFFlat::copyFromIndexOnly(const faiss::IndexIVFFlat* index) {
+    DeviceScope scope(config_.device);
+
+    // This will copy GpuIndexIVF data such as the coarse quantizer
+    GpuIndexIVF::copyFrom(index);
+
+    // Clear out our old data
+    index_.reset();
+
+    // skip base class allocations if cuVS is enabled
+    if (!should_use_cuvs(config_)) {
+        baseIndex_.reset();
+    }
+
+    // The other index might not be trained
+    if (!index->is_trained) {
+        FAISS_ASSERT(!is_trained);
+        return;
+    }
+
+    // Otherwise, we can populate ourselves from the other index
+    FAISS_ASSERT(is_trained);
+
+    // Copy our lists as well
+    setIndex_(
+            resources_.get(),
+            d,
+            nlist,
+            index->metric_type,
+            index->metric_arg,
+            false,   // no residual
+            nullptr, // no scalar quantizer
+            ivfFlatConfig_.interleavedLayout,
+            ivfFlatConfig_.indicesOptions,
+            config_.memorySpace);
+    baseIndex_ = std::static_pointer_cast<IVFBase, IVFFlat>(index_);
+    updateQuantizer();
+}
+
+void GpuIndexIVFFlat::translateCodesToGpu(const faiss::IndexIVFFlat* index) {
+    index_ -> storeTranslatedCodes(index->invlists);
+}
+
+void GpuIndexIVFFlat::copyInvertedLists(const faiss::IndexIVFFlat* index) {
+    index_->copyInvertedListsFromNoRealloc(index->invlists);
+}
+
 void GpuIndexIVFFlat::copyFrom(const faiss::IndexIVFFlat* index) {
     DeviceScope scope(config_.device);
 

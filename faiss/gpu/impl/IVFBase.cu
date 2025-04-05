@@ -111,6 +111,7 @@ void IVFBase::reset() {
 
     deviceListData_.clear();
     deviceListIndices_.clear();
+    translatedCodes_.clear();
     deviceListDataPointers_.clear();
     deviceListIndexPointers_.clear();
     deviceListLengths_.clear();
@@ -127,6 +128,7 @@ void IVFBase::reset() {
                 new DeviceIVFList(resources_, info)));
 
         listOffsetToUserIndex_.emplace_back(std::vector<idx_t>());
+        translatedCodes_.emplace_back(std::vector<uint8_t>());
     }
 
     deviceListDataPointers_.resize(numLists_, stream);
@@ -352,6 +354,25 @@ void IVFBase::reserveInvertedListsIndexMemory(const InvertedLists* ivf) {
     printf ("ivfListIndexReservation_ size: %zu\n", ivfListIndexReservation_.size);
 }
 
+void IVFBase::storeTranslatedCodes(const InvertedLists* ivf) {
+    idx_t nlist = ivf ? ivf->nlist : 0;
+    for (idx_t i = 0; i < nlist; ++i) {
+        auto codes = ivf->get_codes(i);
+        auto numVecs = ivf->list_size(i);
+        // The GPU might have a different layout of the memory
+        auto gpuListSizeInBytes = getGpuVectorsEncodingSize_(numVecs);
+        auto cpuListSizeInBytes = getCpuVectorsEncodingSize_(numVecs);
+
+        // Translate the codes as needed to our preferred form
+        std::vector<uint8_t> codesV(cpuListSizeInBytes);
+        std::memcpy(codesV.data(), codes, cpuListSizeInBytes);
+        auto translatedCodes = translateCodesToGpu_(std::move(codesV), numVecs);
+
+        translatedCodes_[i] = std::move(translatedCodes);
+    }
+    isTranslatedCodesStored_ = true;
+}
+
 void IVFBase::copyInvertedListsFromNoRealloc(const InvertedLists* ivf) {
     idx_t nlist = ivf ? ivf->nlist : 0;
     if (nlist == 0) {
@@ -359,6 +380,9 @@ void IVFBase::copyInvertedListsFromNoRealloc(const InvertedLists* ivf) {
     }
     reserveInvertedListsDataMemory(ivf);
     reserveInvertedListsIndexMemory(ivf);
+    if (!isTranslatedCodesStored_) {
+        storeTranslatedCodes(ivf);
+    }
 
     size_t offsetData = 0;
     size_t offsetIndex = 0;
@@ -419,16 +443,32 @@ void IVFBase::addEncodedVectorsToList_(
     auto gpuListSizeInBytes = getGpuVectorsEncodingSize_(numVecs);
     auto cpuListSizeInBytes = getCpuVectorsEncodingSize_(numVecs);
 
-    // Translate the codes as needed to our preferred form
-    std::vector<uint8_t> codesV(cpuListSizeInBytes);
-    std::memcpy(codesV.data(), codes, cpuListSizeInBytes);
-    auto translatedCodes = translateCodesToGpu_(std::move(codesV), numVecs);
-
-    listCodes->data.append(
-            translatedCodes.data(),
+    if (isTranslatedCodesStored_) {
+        listCodes->data.append(
+            translatedCodes_[listId].data(),
             gpuListSizeInBytes,
             stream,
             true /* exact reserved size */);
+    } else {
+        // Translate the codes as needed to our preferred form
+        std::vector<uint8_t> codesV(cpuListSizeInBytes);
+        std::memcpy(codesV.data(), codes, cpuListSizeInBytes);
+        auto translatedCodes = translateCodesToGpu_(std::move(codesV), numVecs);
+
+        listCodes->data.append(
+                translatedCodes.data(),
+                gpuListSizeInBytes,
+                stream,
+                true /* exact reserved size */);
+    }
+
+    // test without translation
+    // listCodes->data.append(
+    //         (uint8_t*)codes,
+    //         gpuListSizeInBytes,
+    //         stream,
+    //         true /* exact reserved size */);
+    
     listCodes->numVecs = numVecs;
 
     // Handle the indices as well

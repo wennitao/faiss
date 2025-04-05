@@ -63,6 +63,10 @@ class GpuIndexIVFFlat : public GpuIndexIVF {
     /// Reserve GPU memory in our inverted lists for this number of vectors
     void reserveMemory(size_t numVecs);
 
+    void copyFromIndexOnly (const faiss::IndexIVFFlat* index);
+    void translateCodesToGpu(const faiss::IndexIVFFlat* index);
+    void copyInvertedLists (const faiss::IndexIVFFlat* index);
+
     /// Initialize ourselves from the given CPU index; will overwrite
     /// all data in ourselves
     void copyFrom(const faiss::IndexIVFFlat* index);

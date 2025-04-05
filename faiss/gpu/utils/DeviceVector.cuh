@@ -123,12 +123,13 @@ class DeviceVector {
             int dev = getDeviceForAddress(d);
             if (dev == -1) {
                 printf ("DeviceVector::append: cudaMemcpyHostToDevice\n");
-                CUDA_VERIFY(cudaMemcpyAsync(
-                        data() + num_,
-                        d,
-                        n * sizeof(T),
-                        cudaMemcpyHostToDevice,
-                        stream));
+                // CUDA_VERIFY(cudaMemcpyAsync(
+                //         data() + num_,
+                //         d,
+                //         n * sizeof(T),
+                //         cudaMemcpyHostToDevice,
+                //         stream));
+                CUDA_VERIFY(cudaMemcpy(data() + num_, d, n * sizeof(T), cudaMemcpyHostToDevice));
             } else {
                 CUDA_VERIFY(cudaMemcpyAsync(
                         data() + num_,
@@ -169,12 +170,13 @@ class DeviceVector {
     // Set the specific value at a given index to `value`
     void setAt(size_t idx, const T& value, cudaStream_t stream) {
         FAISS_ASSERT(idx < num_);
-        CUDA_VERIFY(cudaMemcpyAsync(
-                data() + idx,
-                &value,
-                sizeof(T),
-                cudaMemcpyHostToDevice,
-                stream));
+        // CUDA_VERIFY(cudaMemcpyAsync(
+        //         data() + idx,
+        //         &value,
+        //         sizeof(T),
+        //         cudaMemcpyHostToDevice,
+        //         stream));
+        CUDA_VERIFY(cudaMemcpy(data() + idx, &value, sizeof(T), cudaMemcpyHostToDevice));
     }
 
     // Copy a specific value at a given index to the host
