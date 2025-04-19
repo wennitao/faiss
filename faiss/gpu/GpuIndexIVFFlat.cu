@@ -108,6 +108,14 @@ void GpuIndexIVFFlat::reserveMemory(size_t numVecs) {
     }
 }
 
+size_t GpuIndexIVFFlat::getGpuVectorsEncodingSize(const faiss::IndexIVFFlat* index) const {
+    return index_ -> getInvertedListsDataMemory (index -> invlists);
+}
+
+size_t GpuIndexIVFFlat::getGpuVectorsIndexSize(const faiss::IndexIVFFlat* index) const {
+    return index_ -> getInvertedListsIndexMemory (index -> invlists);
+}
+
 void GpuIndexIVFFlat::copyFromIndexOnly(const faiss::IndexIVFFlat* index) {
     DeviceScope scope(config_.device);
 
@@ -151,8 +159,8 @@ void GpuIndexIVFFlat::translateCodesToGpu(const faiss::IndexIVFFlat* index) {
     index_ -> storeTranslatedCodes(index->invlists);
 }
 
-void GpuIndexIVFFlat::copyInvertedLists(const faiss::IndexIVFFlat* index) {
-    index_->copyInvertedListsFromNoRealloc(index->invlists);
+void GpuIndexIVFFlat::copyInvertedLists(const faiss::IndexIVFFlat* index, GpuMemoryReservation* ivfListDataReservation, GpuMemoryReservation* ivfListIndexReservation) {
+    index_-> copyInvertedListsFromNoRealloc(index->invlists, ivfListDataReservation, ivfListIndexReservation);
 }
 
 void GpuIndexIVFFlat::copyFrom(const faiss::IndexIVFFlat* index) {
@@ -194,8 +202,8 @@ void GpuIndexIVFFlat::copyFrom(const faiss::IndexIVFFlat* index) {
     updateQuantizer();
 
     // Copy all of the IVF data
-    // index_->copyInvertedListsFrom(index->invlists);
-    index_->copyInvertedListsFromNoRealloc(index->invlists);
+    index_->copyInvertedListsFrom(index->invlists);
+    // index_->copyInvertedListsFromNoRealloc(index->invlists);
 }
 
 void GpuIndexIVFFlat::copyTo(faiss::IndexIVFFlat* index) const {

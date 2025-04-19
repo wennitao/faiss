@@ -119,7 +119,9 @@ Index* ToCPUCloner::clone_Index(const Index* index) {
 }
 
 faiss::Index* index_gpu_to_cpu(const faiss::Index* gpu_index) {
+    #ifdef FAISS_DEBUG
     printf ("index_gpu_to_cpu\n");
+    #endif
     ToCPUCloner cl;
     return cl.clone_Index(gpu_index);
 }
