@@ -73,6 +73,7 @@ class GpuIndexIVFFlat : public GpuIndexIVF {
     /// Initialize ourselves from the given CPU index; will overwrite
     /// all data in ourselves
     void copyFrom(const faiss::IndexIVFFlat* index);
+    void copyFrom(const faiss::IndexIVFFlat* index, GpuMemoryReservation* ivfListDataReservation, GpuMemoryReservation* ivfListIndexReservation);
 
     /// Copy ourselves to the given CPU index; will overwrite all data
     /// in the index instance

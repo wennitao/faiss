@@ -175,7 +175,9 @@ Index* ToGpuCloner::clone_Index(const Index* index) {
         GpuIndexIVFFlat* res = new GpuIndexIVFFlat(
                 provider, ifl->d, ifl->nlist, ifl->metric_type, config);
         if (reserveVecs > 0 && ifl->ntotal == 0) {
+            #ifdef FAISS_DEBUG
             printf ("reserveVecs=%ld\n", reserveVecs);
+            #endif
             res->reserveMemory(reserveVecs);
         }
 
@@ -255,6 +257,65 @@ Index* ToGpuCloner::clone_Index(const Index* index) {
     }
 }
 
+Index* ToGpuCloner::clone_Index(const Index* index, faiss::gpu::GpuMemoryReservation* ivfListDataReservation, faiss::gpu::GpuMemoryReservation* ivfListIndexReservation) {
+    if (auto ifl = dynamic_cast<const IndexFlat*>(index)) {
+        FAISS_THROW_MSG("Clone IndexFlat with reserved gpu memory not supported yet. ");
+        return Cloner::clone_Index(index);
+    } else if (
+            dynamic_cast<const IndexScalarQuantizer*>(index) &&
+            static_cast<const IndexScalarQuantizer*>(index)->sq.qtype ==
+                    ScalarQuantizer::QT_fp16) {
+        FAISS_THROW_MSG("Clone IndexScalarQuantizer with reserved gpu memory not supported yet. ");
+        return Cloner::clone_Index(index);
+    } else if (auto ifl = dynamic_cast<const faiss::IndexIVFFlat*>(index)) {
+        GpuIndexIVFFlatConfig config;
+        config.device = device;
+        config.indicesOptions = indicesOptions;
+        config.flatConfig.useFloat16 = useFloat16CoarseQuantizer;
+        config.use_cuvs = use_cuvs;
+        config.allowCpuCoarseQuantizer = allowCpuCoarseQuantizer;
+
+        GpuIndexIVFFlat* res = new GpuIndexIVFFlat(
+                provider, ifl->d, ifl->nlist, ifl->metric_type, config);
+        if (reserveVecs > 0 && ifl->ntotal == 0) {
+            #ifdef FAISS_DEBUG
+            printf ("reserveVecs=%ld\n", reserveVecs);
+            #endif
+            res->reserveMemory(reserveVecs);
+        }
+
+        res->copyFrom(ifl, ivfListDataReservation, ivfListIndexReservation);
+        return res;
+    } else if (
+            auto ifl = dynamic_cast<const faiss::IndexIVFScalarQuantizer*>(
+                    index)) {
+        FAISS_THROW_MSG("Clone IndexIVFScalarQuantizer with reserved gpu memory not supported yet. ");
+        return Cloner::clone_Index(index);
+    } else if (auto ipq = dynamic_cast<const faiss::IndexIVFPQ*>(index)) {
+        FAISS_THROW_MSG("Clone IndexIVFPQ with reserved gpu memory not supported yet. ");
+        return Cloner::clone_Index(index);
+    }
+#if defined USE_NVIDIA_CUVS
+    else if (auto icg = dynamic_cast<const faiss::IndexHNSWCagra*>(index)) {
+        GpuIndexCagraConfig config;
+        config.device = device;
+        GpuIndexCagra* res =
+                new GpuIndexCagra(provider, icg->d, icg->metric_type, config);
+        res->copyFrom(icg);
+        return res;
+    }
+#endif
+    else {
+        // use CPU cloner for IDMap and PreTransform
+        auto index_idmap = dynamic_cast<const IndexIDMap*>(index);
+        auto index_pt = dynamic_cast<const IndexPreTransform*>(index);
+        if (index_idmap || index_pt) {
+            return Cloner::clone_Index(index);
+        }
+        FAISS_THROW_MSG("This index type is not implemented on GPU.");
+    }
+}
+
 faiss::Index* index_cpu_to_gpu(
         GpuResourcesProvider* provider,
         int device,
@@ -263,6 +324,18 @@ faiss::Index* index_cpu_to_gpu(
     GpuClonerOptions defaults;
     ToGpuCloner cl(provider, device, options ? *options : defaults);
     return cl.clone_Index(index);
+}
+
+faiss::Index* index_cpu_to_gpu_with_reserved_memory (
+        GpuResourcesProvider* provider,
+        int device,
+        const faiss::Index* index,
+        faiss::gpu::GpuMemoryReservation* ivfListDataReservation, 
+        faiss::gpu::GpuMemoryReservation* ivfListIndexReservation,
+        const GpuClonerOptions* options) {
+    GpuClonerOptions defaults;
+    ToGpuCloner cl(provider, device, options ? *options : defaults);
+    return cl.clone_Index(index, ivfListDataReservation, ivfListIndexReservation);
 }
 
 /**********************************************************

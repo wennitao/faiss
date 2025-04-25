@@ -39,6 +39,10 @@ struct ToGpuCloner : faiss::Cloner, GpuClonerOptions {
             const GpuClonerOptions& options);
 
     Index* clone_Index(const Index* index) override;
+    Index* clone_Index(
+            const Index* index,
+            faiss::gpu::GpuMemoryReservation* ivfListDataReservation,
+            faiss::gpu::GpuMemoryReservation* ivfListIndexReservation);
 };
 
 /// Cloner specialized for CPU -> multiple GPUs
@@ -74,6 +78,14 @@ faiss::Index* index_cpu_to_gpu(
         GpuResourcesProvider* provider,
         int device,
         const faiss::Index* index,
+        const GpuClonerOptions* options = nullptr);
+
+faiss::Index* index_cpu_to_gpu_with_reserved_memory (
+        GpuResourcesProvider* provider,
+        int device,
+        const faiss::Index* index,
+        faiss::gpu::GpuMemoryReservation* ivfListDataReservation, 
+        faiss::gpu::GpuMemoryReservation* ivfListIndexReservation,
         const GpuClonerOptions* options = nullptr);
 
 faiss::Index* index_cpu_to_gpu_multiple(
