@@ -73,11 +73,14 @@ class IVFBase {
 
     virtual void storeTranslatedCodes(const InvertedLists* ivf);
 
+    virtual size_t getInvertedListsDataMemory(const InvertedLists* ivf) const ;
+    virtual size_t getInvertedListsIndexMemory(const InvertedLists* ivf) const;
+
     virtual void reserveInvertedListsDataMemory(const InvertedLists* ivf);
     virtual void reserveInvertedListsIndexMemory(const InvertedLists* ivf);
 
     /// Copy all inverted lists from a CPU representation to ourselves without realloc
-    virtual void copyInvertedListsFromNoRealloc(const InvertedLists* ivf);
+    virtual void copyInvertedListsFromNoRealloc(const InvertedLists* ivf, GpuMemoryReservation* ivfListDataReservation, GpuMemoryReservation* ivfListIndexReservation);
 
     /// Copy all inverted lists from ourselves to a CPU representation
     virtual void copyInvertedListsTo(InvertedLists* ivf);

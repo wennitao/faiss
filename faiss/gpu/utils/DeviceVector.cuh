@@ -47,8 +47,10 @@ class DeviceVector {
 
     ~DeviceVector() {
         if (useOwnGpuMemoryReservation_) {
+            #ifdef FAISS_DEBUG
             printf ("DeviceVector::~DeviceVector: clearing\n");
             printf ("num_: %zu, capacity_: %zu\n", num_, capacity_);
+            #endif
             clear();
         }
     }
@@ -116,20 +118,24 @@ class DeviceVector {
                 reserveSize = getNewCapacity_(reserveSize);
             }
 
+            #ifdef FAISS_DEBUG
             printf ("DeviceVector::append: reserving %zu elements (from %zu)\n",
                     reserveSize, capacity_);
+            #endif
             mem = reserve(reserveSize, stream);
 
             int dev = getDeviceForAddress(d);
             if (dev == -1) {
+                #ifdef FAISS_DEBUG
                 printf ("DeviceVector::append: cudaMemcpyHostToDevice\n");
-                // CUDA_VERIFY(cudaMemcpyAsync(
-                //         data() + num_,
-                //         d,
-                //         n * sizeof(T),
-                //         cudaMemcpyHostToDevice,
-                //         stream));
-                CUDA_VERIFY(cudaMemcpy(data() + num_, d, n * sizeof(T), cudaMemcpyHostToDevice));
+                #endif
+                CUDA_VERIFY(cudaMemcpyAsync(
+                        data() + num_,
+                        d,
+                        n * sizeof(T),
+                        cudaMemcpyHostToDevice,
+                        stream));
+                // CUDA_VERIFY(cudaMemcpy(data() + num_, d, n * sizeof(T), cudaMemcpyHostToDevice));
             } else {
                 CUDA_VERIFY(cudaMemcpyAsync(
                         data() + num_,
@@ -224,7 +230,9 @@ class DeviceVector {
     // Returns true if we actually reallocated memory
     bool reserve(size_t newCapacity, cudaStream_t stream) {
         if (newCapacity <= capacity_) {
+            #ifdef FAISS_DEBUG
             printf ("DeviceVector::reserve: no reallocation needed\n");
+            #endif
             return false;
         }
 
@@ -235,7 +243,9 @@ class DeviceVector {
 
     void assignReservedMemoryPointer (void *p, size_t newCapacity) {
         if (newCapacity <= capacity_) {
+            #ifdef FAISS_DEBUG
             printf ("DeviceVector::assignReservedMemory: no reallocation needed\n");
+            #endif
             return;
         }
         data_ = p;

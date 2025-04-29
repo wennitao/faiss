@@ -333,25 +333,35 @@ void IVFBase::copyInvertedListsFrom(const InvertedLists* ivf) {
     }
 }
 
-void IVFBase::reserveInvertedListsDataMemory(const InvertedLists* ivf) {
+size_t IVFBase::getInvertedListsDataMemory(const InvertedLists* ivf) const {
     idx_t nlist = ivf ? ivf->nlist : 0;
     size_t reserveSize = 0;
     for (idx_t i = 0; i < nlist; ++i) {
         reserveSize += getGpuVectorsEncodingSize_(ivf->list_size(i));
     }
-    auto allocInfo = AllocInfo(AllocType::IVFLists, getCurrentDevice(), space_, resources_->getDefaultStreamCurrentDevice());
-    ivfListDataReservation_ = resources_->allocMemoryHandle(AllocRequest(allocInfo, reserveSize));
+    return reserveSize;
 }
 
-void IVFBase::reserveInvertedListsIndexMemory(const InvertedLists* ivf) {
+size_t IVFBase::getInvertedListsIndexMemory(const InvertedLists* ivf) const {
     idx_t nlist = ivf ? ivf->nlist : 0;
     size_t reserveSize = 0;
     for (idx_t i = 0; i < nlist; ++i) {
         reserveSize += ivf->list_size(i) * sizeof(idx_t);
     }
+    return reserveSize;
+}
+
+void IVFBase::reserveInvertedListsDataMemory(const InvertedLists* ivf) {
+    size_t reserveSize = getInvertedListsDataMemory(ivf);
+    auto allocInfo = AllocInfo(AllocType::IVFLists, getCurrentDevice(), space_, resources_->getDefaultStreamCurrentDevice());
+    ivfListDataReservation_ = resources_->allocMemoryHandle(AllocRequest(allocInfo, reserveSize));
+}
+
+void IVFBase::reserveInvertedListsIndexMemory(const InvertedLists* ivf) {
+    size_t reserveSize = getInvertedListsIndexMemory(ivf);
     auto allocInfo = AllocInfo(AllocType::IVFLists, getCurrentDevice(), space_, resources_->getDefaultStreamCurrentDevice());
     ivfListIndexReservation_ = resources_->allocMemoryHandle(AllocRequest(allocInfo, reserveSize));
-    printf ("ivfListIndexReservation_ size: %zu\n", ivfListIndexReservation_.size);
+    // printf ("ivfListIndexReservation_ size: %zu\n", ivfListIndexReservation_.size);
 }
 
 void IVFBase::storeTranslatedCodes(const InvertedLists* ivf) {
@@ -373,13 +383,14 @@ void IVFBase::storeTranslatedCodes(const InvertedLists* ivf) {
     isTranslatedCodesStored_ = true;
 }
 
-void IVFBase::copyInvertedListsFromNoRealloc(const InvertedLists* ivf) {
+void IVFBase::copyInvertedListsFromNoRealloc(const InvertedLists* ivf, GpuMemoryReservation* ivfListDataReservation, GpuMemoryReservation* ivfListIndexReservation) {
     idx_t nlist = ivf ? ivf->nlist : 0;
     if (nlist == 0) {
         return;
     }
-    reserveInvertedListsDataMemory(ivf);
-    reserveInvertedListsIndexMemory(ivf);
+    // reserveInvertedListsDataMemory(ivf);
+    // reserveInvertedListsIndexMemory(ivf);
+
     if (!isTranslatedCodesStored_) {
         storeTranslatedCodes(ivf);
     }
@@ -393,11 +404,11 @@ void IVFBase::copyInvertedListsFromNoRealloc(const InvertedLists* ivf) {
         // auto curAlloc = GpuMemoryReservation(resources_, ivfListDataReservation_.device, ivfListDataReservation_.stream, (uint8_t*) ivfListDataReservation_.get() + offset, curSize);
 
         auto& listCodes = deviceListData_[i];
-        listCodes->data.assignReservedMemoryPointer((uint8_t*) ivfListDataReservation_.get() + offsetData, curDataSize);
+        listCodes->data.assignReservedMemoryPointer((uint8_t*) ivfListDataReservation -> get() + offsetData, curDataSize);
         offsetData += curDataSize;
 
         auto& listIndices = deviceListIndices_[i];
-        listIndices->data.assignReservedMemoryPointer((uint8_t*) ivfListIndexReservation_.get() + offsetIndex, curIndexSize);
+        listIndices->data.assignReservedMemoryPointer((uint8_t*) ivfListIndexReservation -> get() + offsetIndex, curIndexSize);
         offsetIndex += curIndexSize;
 
         addEncodedVectorsToList_(
@@ -514,7 +525,9 @@ void IVFBase::addIndicesFromCpu_(
         // count as well
         listIndices->numVecs = numVecs;
     } else if (indicesOptions_ == INDICES_64_BIT) {
+        #ifdef FAISS_DEBUG
         printf ("addIndicesFromCpu_ 64-bit\n");
+        #endif
         listIndices->data.append(
                 (uint8_t*)indices,
                 numVecs * sizeof(idx_t),
