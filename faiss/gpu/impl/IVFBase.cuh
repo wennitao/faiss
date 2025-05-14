@@ -285,7 +285,7 @@ class IVFBase {
     std::vector<std::unique_ptr<DeviceIVFList>> deviceListIndices_;
 
     bool isTranslatedCodesStored_ = false;
-    std::vector<std::vector<uint8_t>> translatedCodes_;
+    std::vector<uint8_t*> translatedCodes_;
 
     /// If we are storing indices on the CPU (indicesOptions_ is
     /// INDICES_CPU), then this maintains a CPU-side map of what

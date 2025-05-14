@@ -109,6 +109,12 @@ void IVFBase::reserveMemory(idx_t numVecs) {
 void IVFBase::reset() {
     auto stream = resources_->getDefaultStreamCurrentDevice();
 
+    if (isTranslatedCodesStored_) {
+        for (auto& ptr : translatedCodes_) {
+            cudaFreeHost(ptr);
+        }
+    }
+
     deviceListData_.clear();
     deviceListIndices_.clear();
     translatedCodes_.clear();
@@ -128,7 +134,8 @@ void IVFBase::reset() {
                 new DeviceIVFList(resources_, info)));
 
         listOffsetToUserIndex_.emplace_back(std::vector<idx_t>());
-        translatedCodes_.emplace_back(std::vector<uint8_t>());
+
+        translatedCodes_.emplace_back(nullptr);
     }
 
     deviceListDataPointers_.resize(numLists_, stream);
@@ -141,6 +148,7 @@ void IVFBase::reset() {
     deviceListLengths_.setAll(0, stream);
 
     maxListLength_ = 0;
+    isTranslatedCodesStored_ = false;
 }
 
 idx_t IVFBase::getDim() const {
@@ -376,9 +384,25 @@ void IVFBase::storeTranslatedCodes(const InvertedLists* ivf) {
         // Translate the codes as needed to our preferred form
         std::vector<uint8_t> codesV(cpuListSizeInBytes);
         std::memcpy(codesV.data(), codes, cpuListSizeInBytes);
-        auto translatedCodes = translateCodesToGpu_(std::move(codesV), numVecs);
+        std::vector<uint8_t> translatedCodes = translateCodesToGpu_(std::move(codesV), numVecs);
 
-        translatedCodes_[i] = std::move(translatedCodes);
+        cudaError_t err = cudaMallocHost (
+                (void**)&translatedCodes_[i],
+                gpuListSizeInBytes, 
+                cudaHostAllocPortable);
+        if (err != cudaSuccess) {
+            std::cout << "cudaMallocHost " << cudaGetErrorString(err) << std::endl;
+        }
+        // copy translated codes to pinned memory
+        err = cudaMemcpy(
+                translatedCodes_[i],
+                translatedCodes.data(),
+                gpuListSizeInBytes,
+                cudaMemcpyHostToHost);
+        if (err != cudaSuccess) {
+            std::cout << "cudaMemcpy " << cudaGetErrorString(err) << std::endl;
+        }
+        // std::cout << translatedCodes[0] << " " << translatedCodes_[i][0] << std::endl;
     }
     isTranslatedCodesStored_ = true;
 }
@@ -455,8 +479,9 @@ void IVFBase::addEncodedVectorsToList_(
     auto cpuListSizeInBytes = getCpuVectorsEncodingSize_(numVecs);
 
     if (isTranslatedCodesStored_) {
+        // std::cout << "addEncodedVectorsToList_ " << listId << " " << numVecs << std::endl;
         listCodes->data.append(
-            translatedCodes_[listId].data(),
+            translatedCodes_[listId],
             gpuListSizeInBytes,
             stream,
             true /* exact reserved size */);
@@ -506,7 +531,12 @@ void IVFBase::addIndicesFromCpu_(
 
     if (indicesOptions_ == INDICES_32_BIT) {
         // Make sure that all indices are in bounds
-        std::vector<int> indices32(numVecs);
+        // std::vector<int> indices32(numVecs);
+        int* indices32 ;
+        cudaError_t err = cudaMallocHost (
+                (void**)&indices32,
+                numVecs * sizeof(int), 
+                cudaHostAllocPortable);
         for (idx_t i = 0; i < numVecs; ++i) {
             auto ind = indices[i];
             FAISS_ASSERT(ind <= (idx_t)std::numeric_limits<int>::max());
@@ -516,7 +546,7 @@ void IVFBase::addIndicesFromCpu_(
         static_assert(sizeof(int) == 4, "");
 
         listIndices->data.append(
-                (uint8_t*)indices32.data(),
+                (uint8_t*)indices32,
                 numVecs * sizeof(int),
                 stream,
                 true /* exact reserved size */);
