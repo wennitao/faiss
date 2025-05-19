@@ -233,17 +233,17 @@ template <
         int NumThreadQ>
 __global__ void multiHeadIvfInterleavedScan(
         // [head][query][dim]
-        Tensor<float, 3, true> queries,
-        Tensor<float, 4, true> residualBase,
-        Tensor<idx_t, 3, true> listIds,
+        Tensor<float, 2, true>* queries,
+        Tensor<float, 3, true>* residualBase,
+        Tensor<idx_t, 2, true>* listIds,
         void** allListData,
         idx_t* listLengths,
         Codec codec,
         Metric metric,
         int k,
         // [head][query][probe][k]
-        Tensor<float, 4, true> distanceOut,
-        Tensor<idx_t, 4, true> indicesOut,
+        Tensor<float, 2, true>* distanceOut,
+        Tensor<idx_t, 2, true>* indicesOut,
         const bool Residual) {
     if constexpr ((NumWarpQ == 1 && NumThreadQ == 1) || NumWarpQ >= kWarpSize) {
         extern __shared__ float smem[];
@@ -446,21 +446,21 @@ void runIVFInterleavedScan(
         GpuResources* res);
 
 void runMultiHeadIVFInterleavedScan(
-        Tensor<float, 3, true>& queries,
-        Tensor<idx_t, 3, true>& listIds,
-        DeviceVector<void*>& listData,
-        DeviceVector<void*>& listIndices,
+        Tensor<float, 2, true>* queries,
+        Tensor<idx_t, 2, true>* listIds,
+        DeviceVector<void*>* listData,
+        DeviceVector<void*>* listIndices,
         IndicesOptions indicesOptions,
-        DeviceVector<idx_t>& listLengths,
+        DeviceVector<idx_t>* listLengths,
         int k,
         faiss::MetricType metric,
         bool useResidual,
-        Tensor<float, 4, true>& residualBase,
+        Tensor<float, 3, true>& residualBase,
         GpuScalarQuantizer* scalarQ,
         // output
-        Tensor<float, 3, true>& outDistances,
+        Tensor<float, 2, true>* outDistances,
         // output
-        Tensor<idx_t, 3, true>& outIndices,
+        Tensor<idx_t, 2, true>* outIndices,
         GpuResources* res);
 
 // Second pass of IVF list scanning to perform final k-selection and look up the
@@ -478,15 +478,15 @@ void runIVFInterleavedScan2(
         cudaStream_t stream);
 
 void runMultiHeadIVFInterleavedScan2(
-        Tensor<float, 4, true>& distanceIn,
-        Tensor<idx_t, 4, true>& indicesIn,
-        Tensor<idx_t, 3, true>& listIds,
+        Tensor<float, 3, true>* distanceIn,
+        Tensor<idx_t, 3, true>* indicesIn,
+        Tensor<idx_t, 2, true>* listIds,
         int k,
-        DeviceVector<void*>& listIndices,
+        DeviceVector<void*>* listIndices,
         IndicesOptions indicesOptions,
         bool dir,
-        Tensor<float, 3, true>& distanceOut,
-        Tensor<idx_t, 3, true>& indicesOut,
+        Tensor<float, 2, true>* distanceOut,
+        Tensor<idx_t, 2, true>* indicesOut,
         cudaStream_t stream);
 
 } // namespace gpu

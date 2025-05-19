@@ -309,17 +309,18 @@ void runIVFInterleavedScan2(
 }
 
 void runMultiHeadIVFInterleavedScan2(
-    Tensor<float, 4, true>& distanceIn,
-    Tensor<idx_t, 4, true>& indicesIn,
-    Tensor<idx_t, 3, true>& listIds,
+    int numHeads, 
+    Tensor<float, 3, true>* distanceIn,
+    Tensor<idx_t, 3, true>* indicesIn,
+    Tensor<idx_t, 2, true>* listIds,
     int k,
-    DeviceVector<void*>& listIndices,
+    DeviceVector<void*>* listIndices,
     IndicesOptions indicesOptions,
     bool dir,
-    Tensor<float, 3, true>& distanceOut,
-    Tensor<idx_t, 3, true>& indicesOut,
+    Tensor<float, 2, true>* distanceOut,
+    Tensor<idx_t, 2, true>* indicesOut,
     cudaStream_t stream) {
-        const dim3 grid (distanceIn.getSize(0), distanceIn.getSize(1));
+        const dim3 grid (numHeads, distanceIn[0].getSize(0));
 #define MULTI_HEAD_IVF_SCAN_2(THREADS, NUM_WARP_Q, NUM_THREAD_Q)        \
 multiHeadIvfInterleavedScan2<THREADS, NUM_WARP_Q, NUM_THREAD_Q>   \
         <<<grid, THREADS, 0, stream>>>( \

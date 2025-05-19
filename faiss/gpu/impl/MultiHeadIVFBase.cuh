@@ -72,25 +72,25 @@ public:
             const;
 
     /// Copy all inverted lists from a CPU representation to ourselves
-    virtual void copyInvertedListsFrom(const std::vector<InvertedLists*> ivfs);
+    virtual void copyInvertedListsFrom(const std::vector<InvertedLists*>& ivfs);
 
-    virtual void storeTranslatedCodes(const std::vector<InvertedLists*> ivf);
+    virtual void storeTranslatedCodes(const std::vector<InvertedLists*>& ivf);
 
-    virtual std::vector<size_t> getInvertedListsDataMemory(const std::vector<InvertedLists*> ivf) const ;
-    virtual std::vector<size_t> getInvertedListsIndexMemory(const std::vector<InvertedLists*> ivf) const;
+    virtual std::vector<size_t> getInvertedListsDataMemory(const std::vector<InvertedLists*>& ivf) const ;
+    virtual std::vector<size_t> getInvertedListsIndexMemory(const std::vector<InvertedLists*>& ivf) const;
 
-    virtual void reserveInvertedListsDataMemory(const std::vector<InvertedLists*> ivf);
-    virtual void reserveInvertedListsIndexMemory(const std::vector<InvertedLists*> ivf);
+    virtual void reserveInvertedListsDataMemory(const std::vector<InvertedLists*>& ivf);
+    virtual void reserveInvertedListsIndexMemory(const std::vector<InvertedLists*>& ivf);
 
     /// Copy all inverted lists from a CPU representation to ourselves without realloc
-    virtual void copyInvertedListsFromNoRealloc(const std::vector<InvertedLists*> ivf, GpuMemoryReservation* ivfListDataReservation, GpuMemoryReservation* ivfListIndexReservation);
+    virtual void copyInvertedListsFromNoRealloc(const std::vector<InvertedLists*>& ivf, GpuMemoryReservation* ivfListDataReservation, GpuMemoryReservation* ivfListIndexReservation);
 
     /// Copy all inverted lists from ourselves to a CPU representation
-    virtual void copyInvertedListsTo(std::vector<InvertedLists*> ivf);
+    virtual void copyInvertedListsTo(std::vector<InvertedLists*>& ivf);
 
     /// Update our coarse quantizer with this quantizer instance; may be a CPU
     /// or GPU quantizer
-    virtual void updateQuantizer(std::vector<Index*> quantizer);
+    virtual void updateQuantizer(std::vector<Index*>& quantizer);
 
     /// Classify and encode/add vectors to our IVF lists.
     /// The input data must be on our current device.
@@ -98,29 +98,29 @@ public:
     /// not be able to be added because they contain NaNs.
     virtual idx_t addVectors(
             std::vector<Index*> coarseQuantizer,
-            Tensor<float, 3, true>& vecs,
-            Tensor<idx_t, 2, true>& indices);
+            Tensor<float, 2, true>* vecs,
+            Tensor<idx_t, 1, true>* indices);
 
     /// Find the approximate k nearest neigbors for `queries` against
     /// our database
     virtual void search(
             std::vector<Index*> coarseQuantizer,
-            Tensor<float, 3, true>& queries,
+            Tensor<float, 2, true>* queries,
             std::vector<int> nprobe,
             std::vector<int> k,
-            Tensor<float, 3, true>& outDistances,
-            Tensor<idx_t, 3, true>& outIndices) = 0;
+            Tensor<float, 2, true>* outDistances,
+            Tensor<idx_t, 2, true>* outIndices) = 0;
 
     /// Performs search when we are already given the IVF cells to look at
     /// (GpuIndexIVF::search_preassigned implementation)
     virtual void searchPreassigned(
             std::vector<Index*> coarseQuantizer,
-            Tensor<float, 3, true>& vecs,
-            Tensor<float, 3, true>& ivfDistances,
-            Tensor<idx_t, 3, true>& ivfAssignments,
+            Tensor<float, 2, true>* vecs,
+            Tensor<float, 2, true>* ivfDistances,
+            Tensor<idx_t, 2, true>* ivfAssignments,
             std::vector<int> k,
-            Tensor<float, 3, true>& outDistances,
-            Tensor<idx_t, 3, true>& outIndices,
+            Tensor<float, 2, true>* outDistances,
+            Tensor<idx_t, 2, true>* outIndices,
             bool storePairs) = 0;
 
     /*  It is used to reconstruct a given number of vectors in an Inverted File
@@ -147,25 +147,25 @@ protected:
     /// Performs search in a CPU or GPU coarse quantizer for IVF cells,
     /// returning residuals as well if necessary
     void searchCoarseQuantizer_(
-            std::vector<Index*> coarseQuantizer,
-            std::vector<int> nprobe,
+            std::vector<Index*>& coarseQuantizer,
+            std::vector<int>& nprobe,
             // guaranteed resident on device
-            Tensor<float, 3, true>& vecs,
+            Tensor<float, 2, true>* vecs,
             // Output: the distances to the closest nprobe IVF cell centroids
             // for the query vectors
             // size (nhead, #vecs, nprobe)
-            Tensor<float, 3, true>& distances,
+            Tensor<float, 2, true>* distances,
             // Output: the closest nprobe IVF cells the query vectors lie in
             // size (nhead, #vecs, nprobe)
-            Tensor<idx_t, 3, true>& indices,
+            Tensor<idx_t, 2, true>* indices,
             // optionally compute the residual relative to the IVF cell centroid
             // if passed
             // size (nhead, #vecs, nprobe, dim)
-            Tensor<float, 4, true>* residuals,
+            Tensor<float, 3, true>* residuals,
             // optionally return the IVF cell centroids to which the input
             // vectors were assigned
             // size (nhead, #vecs, nprobe, dim)
-            Tensor<float, 4, true>* centroids);
+            Tensor<float, 3, true>* centroids);
 
     /// Returns the number of bytes in which an IVF list containing numVecs
     /// vectors is encoded on the device. Note that due to padding this is not
@@ -186,15 +186,15 @@ protected:
 
     /// Append vectors to our on-device lists
     virtual void appendVectors_(
-            Tensor<float, 3, true>& vecs,
-            Tensor<float, 3, true>& ivfCentroidResiduals,
-            Tensor<idx_t, 2, true>& indices,
-            Tensor<idx_t, 2, true>& uniqueLists,
-            Tensor<idx_t, 2, true>& vectorsByUniqueList,
-            Tensor<idx_t, 2, true>& uniqueListVectorStart,
-            Tensor<idx_t, 2, true>& uniqueListStartOffset,
-            Tensor<idx_t, 2, true>& listIds,
-            Tensor<idx_t, 2, true>& listOffset,
+            Tensor<float, 2, true>* vecs,
+            Tensor<float, 2, true>* ivfCentroidResiduals,
+            Tensor<idx_t, 1, true>* indices,
+            Tensor<idx_t, 1, true>* uniqueLists,
+            Tensor<idx_t, 1, true>* vectorsByUniqueList,
+            Tensor<idx_t, 1, true>* uniqueListVectorStart,
+            Tensor<idx_t, 1, true>* uniqueListStartOffset,
+            Tensor<idx_t, 1, true>* listIds,
+            Tensor<idx_t, 1, true>* listOffset,
             cudaStream_t stream) = 0;
 
     /// Reclaim memory consumed on the device for our inverted lists
@@ -207,7 +207,7 @@ protected:
     /// For a set of list IDs, update device-side list pointer and size
     /// information
     void updateDeviceListInfo_(
-            const std::vector<idx_t>& listIds,
+            const std::vector<std::vector<idx_t>>& listIds,
             cudaStream_t stream);
 
     /// Shared function to copy indices from CPU to GPU
@@ -229,13 +229,14 @@ protected:
     const int dim_;
 
     /// Number of inverted lists we maintain
-    const std::vector<idx_t> numLists_;
+    // const std::vector<idx_t> numLists_;
+    const idx_t numLists_;
 
     /// Do we need to also compute residuals when processing vectors?
     bool useResidual_;
 
     /// Coarse quantizer centroids available on GPU
-    DeviceTensor<float, 3, true> ivfCentroids_;
+    DeviceTensor<float, 2, true>* ivfCentroids_;
 
     /// Whether or not our index uses an interleaved by kWarpSize layout:
     /// The default memory layout is [vector][PQ/SQ component]:
@@ -259,15 +260,15 @@ protected:
 
     /// Device representation of all inverted list data
     /// id -> data
-    DeviceVector<void*> deviceListDataPointers_;
+    DeviceVector<void*>* deviceListDataPointers_;
 
     /// Device representation of all inverted list index pointers
     /// id -> data
-    DeviceVector<void*> deviceListIndexPointers_;
+    DeviceVector<void*>* deviceListIndexPointers_;
 
     /// Device representation of all inverted list lengths
     /// id -> length in number of vectors
-    DeviceVector<idx_t> deviceListLengths_;
+    DeviceVector<idx_t>* deviceListLengths_;
 
     /// Maximum list length seen
     idx_t maxListLength_;
