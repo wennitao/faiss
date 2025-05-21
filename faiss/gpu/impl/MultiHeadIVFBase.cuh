@@ -97,7 +97,7 @@ public:
     /// Returns the number of vectors successfully added. Vectors may
     /// not be able to be added because they contain NaNs.
     virtual idx_t addVectors(
-            std::vector<Index*> coarseQuantizer,
+            std::vector<Index*>& coarseQuantizer,
             Tensor<float, 2, true>* vecs,
             Tensor<idx_t, 1, true>* indices);
 
@@ -202,12 +202,13 @@ protected:
     size_t reclaimMemory_(bool exact);
 
     /// Update all device-side list pointer and size information
-    void updateDeviceListInfo_(cudaStream_t stream);
+    void updateDeviceListInfo_(int headId, cudaStream_t stream);
 
     /// For a set of list IDs, update device-side list pointer and size
     /// information
     void updateDeviceListInfo_(
-            const std::vector<std::vector<idx_t>>& listIds,
+            int headId, 
+            const std::vector<idx_t>& listIds,
             cudaStream_t stream);
 
     /// Shared function to copy indices from CPU to GPU

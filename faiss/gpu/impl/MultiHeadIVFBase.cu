@@ -160,7 +160,9 @@ void MultiHeadIVFBase::reserveMemory(idx_t totalNumVecs) { // totalNumVecs acros
     // Update device info for all lists, since the base pointers may
     // have changed. This function needs to be aware of the multi-head structure
     // to correctly update the flat global device vectors.
-    updateDeviceListInfo_(stream);
+    for (int h = 0; h < numHeads_; ++h) {
+        updateDeviceListInfo_(h, stream);
+    }
 }
 
 void MultiHeadIVFBase::reset() {
@@ -273,75 +275,71 @@ size_t MultiHeadIVFBase::reclaimMemory_(bool exact) {
                 deviceListIndexPointers_[h].setAt(l, (void*)indexList->data.data(), stream);
             }
         }
+
+        updateDeviceListInfo_(h, stream);
     }
 
-    updateDeviceListInfo_(stream);
     return totalReclaimed;
 }
 
-void MultiHeadIVFBase::updateDeviceListInfo_(cudaStream_t stream) {
-    idx_t totalLists = numHeads_ * numLists_;
-    if (totalLists == 0) return;
-
-    std::vector<idx_t> globalListIds(totalLists);
-    for (idx_t i = 0; i < totalLists; ++i) {
-        globalListIds[i] = i;
+void MultiHeadIVFBase::updateDeviceListInfo_(int headId, cudaStream_t stream) {
+    std::vector<idx_t> listIds(deviceListData_[headId].size());
+    for (idx_t l = 0; l < deviceListData_[headId].size(); ++l) {
+        listIds[l] = l;
     }
-
-    updateDeviceListInfo_(globalListIds, stream);
+    updateDeviceListInfo_(headId, listIds, stream);
 }
 
 void MultiHeadIVFBase::updateDeviceListInfo_(
-        const std::vector<std::vector<idx_t>>& listIds, // These are global list IDs
+        int headId, 
+        const std::vector<idx_t>& listIds,
         cudaStream_t stream) {
-    for (int h = 0; h < numHeads_; ++h) {
-        idx_t listSize = listIds[h].size();
-        HostTensor<idx_t, 1, true> hostListsToUpdate({listSize});
-        HostTensor<idx_t, 1, true> hostNewListLength({listSize});
-        HostTensor<void*, 1, true> hostNewDataPointers({listSize});
-        HostTensor<void*, 1, true> hostNewIndexPointers({listSize});
+    idx_t listSize = listIds.size();
+    HostTensor<idx_t, 1, true> hostListsToUpdate({listSize});
+    HostTensor<idx_t, 1, true> hostNewListLength({listSize});
+    HostTensor<void*, 1, true> hostNewDataPointers({listSize});
+    HostTensor<void*, 1, true> hostNewIndexPointers({listSize});
 
-        for (idx_t i = 0; i < listSize; ++i) {
-            auto listId = listIds[h][i];
-            auto& data = deviceListData_[h][listId];
-            auto& indices = deviceListIndices_[h][listId];
+    for (idx_t i = 0; i < listSize; ++i) {
+        auto listId = listIds[i];
+        auto& data = deviceListData_[headId][listId];
+        auto& indices = deviceListIndices_[headId][listId];
 
-            hostListsToUpdate[i] = listId;
-            hostNewListLength[i] = data->numVecs;
-            hostNewDataPointers[i] = data->data.data();
-            hostNewIndexPointers[i] = indices->data.data();
-        }
-
-        // Copy the above update sets to the GPU
-        DeviceTensor<idx_t, 1, true> listsToUpdate(
-                resources_,
-                makeTempAlloc(AllocType::Other, stream),
-                hostListsToUpdate);
-        DeviceTensor<idx_t, 1, true> newListLength(
-                resources_,
-                makeTempAlloc(AllocType::Other, stream),
-                hostNewListLength);
-        DeviceTensor<void*, 1, true> newDataPointers(
-                resources_,
-                makeTempAlloc(AllocType::Other, stream),
-                hostNewDataPointers);
-        DeviceTensor<void*, 1, true> newIndexPointers(
-                resources_,
-                makeTempAlloc(AllocType::Other, stream),
-                hostNewIndexPointers);
-
-        // Update all pointers to the lists on the device that may have
-        // changed
-        runUpdateListPointers(
-                listsToUpdate,
-                newListLength,
-                newDataPointers,
-                newIndexPointers,
-                *(deviceListLengths_ + h),
-                *(deviceListDataPointers_ + h),
-                *(deviceListIndexPointers_ + h),
-                stream);
+        hostListsToUpdate[i] = listId;
+        hostNewListLength[i] = data->numVecs;
+        hostNewDataPointers[i] = data->data.data();
+        hostNewIndexPointers[i] = indices->data.data();
     }
+
+    // Copy the above update sets to the GPU
+    DeviceTensor<idx_t, 1, true> listsToUpdate(
+            resources_,
+            makeTempAlloc(AllocType::Other, stream),
+            hostListsToUpdate);
+    DeviceTensor<idx_t, 1, true> newListLength(
+            resources_,
+            makeTempAlloc(AllocType::Other, stream),
+            hostNewListLength);
+    DeviceTensor<void*, 1, true> newDataPointers(
+            resources_,
+            makeTempAlloc(AllocType::Other, stream),
+            hostNewDataPointers);
+    DeviceTensor<void*, 1, true> newIndexPointers(
+            resources_,
+            makeTempAlloc(AllocType::Other, stream),
+            hostNewIndexPointers);
+
+    // Update all pointers to the lists on the device that may have
+    // changed
+    runUpdateListPointers(
+            listsToUpdate,
+            newListLength,
+            newDataPointers,
+            newIndexPointers,
+            *(deviceListLengths_ + headId),
+            *(deviceListDataPointers_ + headId),
+            *(deviceListIndexPointers_ + headId),
+            stream);
 }
 
 // Example for getListLength:
@@ -887,72 +885,47 @@ idx_t MultiHeadIVFBase::addVectors(
     // FAISS_THROW_IF_NOT(userIndicesPerHead.size() == (size_t)numHeads_);
 
     auto stream = resources_->getDefaultStreamCurrentDevice();
+
     idx_t totalAdded = 0;
 
-    // Prepare for searchCoarseQuantizer_ outputs
-    std::vector<Tensor<float, 2, true>*> ivfDistancesPerHead(numHeads_);
-    std::vector<Tensor<idx_t, 2, true>*> ivfIndicesPerHead(numHeads_);
-    std::vector<Tensor<float, 3, true>*> residualsPerHeadStorage; // Optional
-    std::vector<Tensor<float, 3, true>*>* residualsPerHeadVecPtr = nullptr;
+    std::vector<int> nprobes (numHeads_, 1); 
 
-    // Temporary DeviceTensor objects for each head's coarse search results
-    std::vector<DeviceTensor<float, 2, true>> tempDistances(numHeads_);
-    std::vector<DeviceTensor<idx_t, 2, true>> tempIndices(numHeads_);
-    std::vector<DeviceTensor<float, 3, true>> tempResiduals; // If useResidual_
-
-    if (useResidual_) {
-        residualsPerHeadStorage.resize(numHeads_);
-        tempResiduals.resize(numHeads_);
-        residualsPerHeadVecPtr = &residualsPerHeadStorage;
-    }
-
-    std::vector<int> nprobePerHead(numHeads_, 1); // Assuming nprobe=1 for add
+    DeviceTensor<float, 2, true> unusedIVFDistances[numHeads_];
+    DeviceTensor<idx_t, 2, true> ivfIndices[numHeads_];
+    DeviceTensor<float, 3, true> residuals[numHeads_];
 
     for (int h = 0; h < numHeads_; ++h) {
-        FAISS_THROW_IF_NOT(vecsPerHead[h] && userIndicesPerHead[h]);
-        FAISS_THROW_IF_NOT(vecsPerHead[h]->getSize(0) == userIndicesPerHead[h]->getSize(0));
-        FAISS_THROW_IF_NOT(vecsPerHead[h]->getSize(1) == dim_);
-
-        idx_t numVecsForHead = vecsPerHead[h]->getSize(0);
-        if (numVecsForHead == 0) {
-            ivfDistancesPerHead[h] = nullptr; // Or a dummy empty tensor
-            ivfIndicesPerHead[h] = nullptr;
-            if (useResidual_) residualsPerHeadStorage[h] = nullptr;
-            continue;
-        }
-
-        tempDistances[h] = DeviceTensor<float, 2, true>(
-            resources_, makeTempAlloc(AllocType::Other, stream), {numVecsForHead, (size_t)nprobePerHead[h]});
-        ivfDistancesPerHead[h] = &tempDistances[h];
-
-        tempIndices[h] = DeviceTensor<idx_t, 2, true>(
-            resources_, makeTempAlloc(AllocType::Other, stream), {numVecsForHead, (size_t)nprobePerHead[h]});
-        ivfIndicesPerHead[h] = &tempIndices[h];
-
-        if (useResidual_) {
-            tempResiduals[h] = DeviceTensor<float, 3, true>(
-                resources_, makeTempAlloc(AllocType::Other, stream), {numVecsForHead, (size_t)nprobePerHead[h], (size_t)dim_});
-            residualsPerHeadStorage[h] = &tempResiduals[h];
-        }
+        unusedIVFDistances[h] = DeviceTensor<float, 2, true>(
+            resources_,
+            makeTempAlloc(AllocType::Other, stream),
+            {(vecs + h)->getSize(0), 1});
+        ivfIndices[h] = DeviceTensor<idx_t, 2, true>(
+            resources_,
+            makeTempAlloc(AllocType::Other, stream),
+            {(vecs + h)->getSize(0), 1});
+        residuals[h] = DeviceTensor<float, 3, true>(
+            resources_,
+            makeTempAlloc(AllocType::Other, stream),
+            {(vecs + h)->getSize(0), 1, dim_});
     }
 
     searchCoarseQuantizer_(
         coarseQuantizers,
-        nprobePerHead,
-        vecsPerHead,
-        ivfDistancesPerHead,
-        ivfIndicesPerHead,
-        residualsPerHeadVecPtr,
-        nullptr); // No centroids needed for add
+        nprobes, // nprobe
+        vecs,
+        unusedIVFDistances,
+        ivfIndices,
+        useResidual_ ? residuals : nullptr,
+        nullptr);
 
     for (int h = 0; h < numHeads_; ++h) {
-        if (vecsPerHead[h]->getSize(0) == 0) continue;
+        if ((vecs + h) -> getSize(0) == 0) continue;
 
         // Host-side processing for list assignments for the current head
-        auto ivfIndicesHost = ivfIndicesPerHead[h]->copyToVector(stream); // (numVecsForHead, 1)
+        auto ivfIndicesHost = (ivfIndices + h) -> copyToVector(stream); // (numVecsForHead, 1)
 
         std::unordered_map<idx_t, std::vector<idx_t>> listToVectorIds_h; // listId in head -> original vector indices for this head
-        std::vector<idx_t> vectorIdToList_h(vecsPerHead[h]->getSize(0));
+        std::vector<idx_t> vectorIdToList_h((vecs + h) -> getSize(0));
         std::vector<idx_t> listOffsetHost_h(ivfIndicesHost.size());
         idx_t numAdded_h = 0;
 
@@ -1004,7 +977,6 @@ idx_t MultiHeadIVFBase::addVectors(
 
         // Resize device list data structures for head h
         {
-            std::vector<idx_t> globalListsToUpdate_h;
             for (auto ul_h : uniqueLists_h) {
                 idx_t numVecsToAdd = listToVectorIds_h[ul_h].size();
                 auto& codes = deviceListData_[h][ul_h];
@@ -1024,15 +996,14 @@ idx_t MultiHeadIVFBase::addVectors(
                     listOffsetToUserIndex_[h][ul_h].resize(newNumVecs);
                 }
                 maxListLength_ = std::max(maxListLength_, newNumVecs);
-                globalListsToUpdate_h.push_back(h * numLists_ + ul_h);
             }
-            if (!globalListsToUpdate_h.empty()) {
-                updateDeviceListInfo_(globalListsToUpdate_h, stream);
-            }
+
+            updateDeviceListInfo_(
+                h, uniqueLists_h, stream); // Update device list info for all heads
         }
 
         if (indicesOptions_ == INDICES_CPU) {
-            HostTensor<idx_t, 1, true> currentHeadUserIndices(*userIndicesPerHead[h], stream); // Copy to host
+            HostTensor<idx_t, 1, true> currentHeadUserIndices(*(indices + h), stream); // Copy to host
             for (idx_t i = 0; i < currentHeadUserIndices.getSize(0); ++i) {
                 idx_t listIdInHead = vectorIdToList_h[i];
                 if (listIdInHead < 0) continue;
@@ -1044,41 +1015,36 @@ idx_t MultiHeadIVFBase::addVectors(
 
         // Prepare Tensors for appendVectors_ (all are 1D for a single head's processing)
         // assignedListIds_h: for each vector in vecsPerHead[h], which listIdInHead it's assigned to.
-        DeviceTensor<idx_t, 1, true> assignedListIds_h_dev =
-            tempIndices[h].downcastOuter<1>(); // This is (numVecsForHead, 1), so downcast is (numVecsForHead)
+        auto assignedListIds_h_dev =
+            ivfIndices[h].downcastOuter<1>(); // This is (numVecsForHead, 1), so downcast is (numVecsForHead)
 
-        DeviceTensor<idx_t, 1, true> listOffset_h_dev =
+        auto listOffset_h_dev =
             toDeviceTemporary(resources_, listOffsetHost_h, stream);
-        DeviceTensor<idx_t, 1, true> uniqueLists_h_dev =
+        auto uniqueLists_h_dev =
             toDeviceTemporary(resources_, uniqueLists_h, stream);
-        DeviceTensor<idx_t, 1, true> vectorsByUniqueList_h_dev =
+        auto vectorsByUniqueList_h_dev =
             toDeviceTemporary(resources_, vectorsByUniqueList_h, stream);
-        DeviceTensor<idx_t, 1, true> uniqueListVectorStart_h_dev =
+        auto uniqueListVectorStart_h_dev =
             toDeviceTemporary(resources_, uniqueListVectorStart_h, stream);
-        DeviceTensor<idx_t, 1, true> uniqueListStartOffset_h_dev =
+        auto uniqueListStartOffset_h_dev =
             toDeviceTemporary(resources_, uniqueListStartOffset_h, stream);
 
-        // Residuals for this head (if used)
-        DeviceTensor<float, 2, true> residuals2D_h; // Default empty
-        if (useResidual_) {
-            residuals2D_h = tempResiduals[h].downcastOuter<2>(); // (numVecsForHead, dim)
-        }
-
-
+        // TODO: appendVectors_
         // Call pure virtual appendVectors_
         // Note: vecsPerHead[h] and userIndicesPerHead[h] are T*, so dereference them.
-        appendVectors_(
-            h,                              // headId
-            *vecsPerHead[h],                // vecs for this head
-            residuals2D_h,                  // residuals for this head
-            *userIndicesPerHead[h],         // user indices for this head
-            uniqueLists_h_dev,
-            vectorsByUniqueList_h_dev,
-            uniqueListVectorStart_h_dev,
-            uniqueListStartOffset_h_dev,
-            assignedListIds_h_dev,          // listIds for each vector in vecsPerHead[h]
-            listOffset_h_dev,               // listOffset for each vector in vecsPerHead[h]
-            stream);
+        // appendVectors_(
+        //     h,                              // headId
+        //     *vecsPerHead[h],                // vecs for this head
+        //     residuals2D_h,                  // residuals for this head
+        //     *userIndicesPerHead[h],         // user indices for this head
+        //     uniqueLists_h_dev,
+        //     vectorsByUniqueList_h_dev,
+        //     uniqueListVectorStart_h_dev,
+        //     uniqueListStartOffset_h_dev,
+        //     assignedListIds_h_dev,          // listIds for each vector in vecsPerHead[h]
+        //     listOffset_h_dev,               // listOffset for each vector in vecsPerHead[h]
+        //     stream);
+        // }
     }
 
     return totalAdded;
