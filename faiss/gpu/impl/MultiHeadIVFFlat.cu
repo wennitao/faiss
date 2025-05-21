@@ -168,14 +168,14 @@ void MultiHeadIVFFlat::appendVectors_(
 
 void MultiHeadIVFFlat::search(
     std::vector<Index*>& coarseQuantizers,
-    const std::vector<Tensor<float, 2, true>*>& queriesPerHead,
-    const std::vector<int>& nprobePerHead,
-    const std::vector<int>& kPerHead,
-    std::vector<Tensor<float, 2, true>*>& outDistancesPerHead,
-    std::vector<Tensor<idx_t, 2, true>*>& outIndicesPerHead) {
+    Tensor<float, 2, true>* queries,
+    const std::vector<int>& nprobe,
+    const std::vector<int>& k,
+    Tensor<float, 2, true>* outDistances,
+    Tensor<idx_t, 2, true>* outIndices) {
     
     auto stream = resources_->getDefaultStreamCurrentDevice();
-    FAISS_THROW_IF_NOT(queriesPerHead.size() == (size_t)numHeads_);
+    // FAISS_THROW_IF_NOT(queries.size() == (size_t)numHeads_);
     // ... (add other size assertions for inputs)
 
     std::vector<DeviceTensor<float, 2, true>> coarseDistances_temp(numHeads_);

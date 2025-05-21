@@ -132,15 +132,15 @@ __global__ void ivfInterleavedScan2(
 
 template <int ThreadsPerBlock, int NumWarpQ, int NumThreadQ>
 __global__ void multiHeadIvfInterleavedScan2(
-        Tensor<float, 4, true> distanceIn,
-        Tensor<idx_t, 4, true> indicesIn,
-        Tensor<idx_t, 3, true> listIds,
+        Tensor<float, 3, true>* distanceIn,
+        Tensor<idx_t, 3, true>* indicesIn,
+        Tensor<idx_t, 2, true>* listIds,
         int k,
         void** listIndices,
         IndicesOptions opt,
         bool dir,
-        Tensor<float, 3, true> distanceOut,
-        Tensor<idx_t, 3, true> indicesOut) {
+        Tensor<float, 2, true>* distanceOut,
+        Tensor<idx_t, 2, true>* indicesOut) {
     if constexpr ((NumWarpQ == 1 && NumThreadQ == 1) || NumWarpQ >= kWarpSize) {
         auto headId = blockIdx.x;
         auto queryId = blockIdx.y;
@@ -169,7 +169,7 @@ __global__ void multiHeadIvfInterleavedScan2(
                 heap(kFloatMax, kMaxUInt32, smemK, smemV, k);
 
         // nhead nprobe x k
-        idx_t num = distanceIn.getSize(2) * distanceIn.getSize(3);
+        idx_t num = (distanceIn + headId) -> getSize(1) * (distanceIn + headId) -> getSize(2);
 
         const float* distanceBase = distanceIn[headId][queryId].data();
         idx_t limit = utils::roundDown(num, kWarpSize);
@@ -328,7 +328,7 @@ multiHeadIvfInterleavedScan2<THREADS, NUM_WARP_Q, NUM_THREAD_Q>   \
                 indicesIn,                               \
                 listIds,                                 \
                 k,                                       \
-                listIndices.data(),                      \
+                listIndices -> data(),                     \
                 indicesOptions,                          \
                 dir,                                     \
                 distanceOut,                             \
@@ -416,27 +416,29 @@ void runIVFInterleavedScan(
 }
 
 void runMultiHeadIVFInterleavedScan(
-        Tensor<float, 3, true>& queries,
-        Tensor<idx_t, 3, true>& listIds,
-        DeviceVector<void*>& listData,
-        DeviceVector<void*>& listIndices,
+        int nhead, 
+        Tensor<float, 2, true>* queries,
+        Tensor<idx_t, 2, true>* listIds,
+        DeviceVector<void*>* listData,
+        DeviceVector<void*>* listIndices,
         IndicesOptions indicesOptions,
-        DeviceVector<idx_t>& listLengths,
+        DeviceVector<idx_t>* listLengths,
         int k,
         faiss::MetricType metric,
         bool useResidual,
-        Tensor<float, 4, true>& residualBase,
+        Tensor<float, 3, true>* residualBase,
         GpuScalarQuantizer* scalarQ,
         // output
-        Tensor<float, 3, true>& outDistances,
+        Tensor<float, 2, true>* outDistances,
         // output
-        Tensor<idx_t, 3, true>& outIndices,
+        Tensor<idx_t, 2, true>* outIndices,
         GpuResources* res) {
     // caught for exceptions at a higher level
     FAISS_ASSERT(k <= GPU_MAX_SELECTION_K);
 
     const auto ivf_interleaved_call = [&](const auto func) {
-        func(queries,
+        func(nhead, 
+            queries,
             listIds,
             listData,
             listIndices,
