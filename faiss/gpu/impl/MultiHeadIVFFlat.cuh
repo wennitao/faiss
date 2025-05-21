@@ -27,20 +27,20 @@ public:
 
     void search(
         std::vector<Index*>& coarseQuantizers,
-        const std::vector<Tensor<float, 2, true>*>& queriesPerHead,
-        const std::vector<int>& nprobePerHead,
-        const std::vector<int>& kPerHead,
-        std::vector<Tensor<float, 2, true>*>& outDistancesPerHead,
-        std::vector<Tensor<idx_t, 2, true>*>& outIndicesPerHead) override;
+        Tensor<float, 2, true>* queries,
+        const std::vector<int>& nprobe,
+        const std::vector<int>& k,
+        Tensor<float, 2, true>* outDistances,
+        Tensor<idx_t, 2, true>* outIndices) override;
 
     void searchPreassigned(
         std::vector<Index*>& coarseQuantizers,
-        const std::vector<Tensor<float, 2, true>*>& vecsPerHead,
-        const std::vector<Tensor<float, 2, true>*>& ivfDistancesPerHead,
-        const std::vector<Tensor<idx_t, 2, true>*>& ivfAssignmentsPerHead,
-        const std::vector<int>& kPerHead,
-        std::vector<Tensor<float, 2, true>*>& outDistancesPerHead,
-        std::vector<Tensor<idx_t, 2, true>*>& outIndicesPerHead,
+        Tensor<float, 2, true>* vecs,
+        Tensor<float, 2, true>* ivfDistances,
+        Tensor<idx_t, 2, true>* ivfAssignments,
+        const std::vector<int>& k,
+        float, 2, true>* outDistances,
+        idx_t, 2, true>* outIndices,
         bool storePairs) override;
 
     void reconstruct_n(idx_t headId, idx_t i0, idx_t n, float* out) override;
@@ -73,14 +73,13 @@ protected:
         cudaStream_t stream) override;
 
     virtual void searchImpl_(
-        const std::vector<Tensor<float, 2, true>*>& queriesPerHead,
-        const std::vector<Tensor<float, 2, true>*>& coarseDistancesPerHead,
-        // coarseIndicesPerHead contains LOCAL list IDs (0 to numLists_ - 1) for each head
-        const std::vector<Tensor<idx_t, 2, true>*>& coarseIndicesPerHead,
-        const std::vector<Tensor<float, 3, true>*>& ivfCentroidsPerHead, // Residual base if useResidual_
-        const std::vector<int>& kPerHead,
-        std::vector<Tensor<float, 2, true>*>& outDistancesPerHead,
-        std::vector<Tensor<idx_t, 2, true>*>& outIndicesPerHead,
+        Tensor<float, 2, true>* queries,
+        Tensor<float, 2, true>* coarseDistances,
+        Tensor<idx_t, 2, true>* coarseIndices,
+        Tensor<float, 3, true>* ivfCentroids, 
+        const std::vector<int>& k,
+        Tensor<float, 2, true>* outDistances,
+        Tensor<idx_t, 2, true>* outIndices,
         bool storePairs);
 
 protected:
