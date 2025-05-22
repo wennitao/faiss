@@ -34,7 +34,7 @@ MultiHeadIVFBase::MultiHeadIVFBase(
         GpuResources* resources,
         int numHeads,
         int dim,
-        idx_t nlistPerHead, // Renamed for clarity, numLists_ member stores this
+        std::vector<idx_t>& nlists, 
         faiss::MetricType metric,
         float metricArg,
         bool useResidual,
@@ -46,7 +46,7 @@ MultiHeadIVFBase::MultiHeadIVFBase(
         metricArg_(metricArg),
         numHeads_(numHeads),
         dim_(dim),
-        numLists_(nlistPerHead), // numLists_ now means lists per head
+        nlists_(nlists),
         useResidual_(useResidual),
         interleavedLayout_(interleavedLayout),
         indicesOptions_(indicesOptions),
@@ -75,37 +75,33 @@ MultiHeadIVFBase::MultiHeadIVFBase(
         //                 resources->getDefaultStreamCurrentDevice())),
         maxListLength_(0) {
     FAISS_THROW_IF_NOT(numHeads_ > 0);
-    FAISS_THROW_IF_NOT(numLists_ > 0); // numLists_ is nlistPerHead
     if (numHeads_ > 0) {
-        std::vector<DeviceVector<void*>> deviceListDataPointers;
+        // deviceListDataPointers_.reserve (numHeads_);
         for (int h = 0; h < numHeads_; ++h) {
-            deviceListDataPointers.emplace_back(
+            deviceListDataPointers_.emplace_back(
                 resources_, 
                 AllocInfo(AllocType::IVFLists, getCurrentDevice(), 
                 space_, 
                 resources->getDefaultStreamCurrentDevice()));
         }
-        deviceListDataPointers_ = deviceListDataPointers.data();
 
-        std::vector<DeviceVector<void*>> deviceListIndexPointers;
+        // deviceListIndexPointers_.reserve (numHeads_);
         for (int h = 0; h < numHeads_; ++h) {
-            deviceListIndexPointers.emplace_back(
+            deviceListIndexPointers_.emplace_back(
                 resources_, 
                 AllocInfo(AllocType::IVFLists, getCurrentDevice(), 
                 space_, 
                 resources->getDefaultStreamCurrentDevice()));
         }
-        deviceListIndexPointers_ = deviceListIndexPointers.data();
 
-        std::vector<DeviceVector<idx_t>> deviceListLengths;
+        // deviceListLengths_.reserve (numHeads_);
         for (int h = 0; h < numHeads_; ++h) {
-            deviceListLengths.emplace_back(
+            deviceListLengths_.emplace_back(
                 resources_, 
                 AllocInfo(AllocType::IVFLists, getCurrentDevice(), 
                 space_, 
                 resources->getDefaultStreamCurrentDevice()));
         }
-        deviceListLengths_ = deviceListLengths.data();
     }
     reset();
 }
@@ -124,7 +120,10 @@ void MultiHeadIVFBase::reserveMemory(idx_t totalNumVecs) { // totalNumVecs acros
     auto stream = resources_->getDefaultStreamCurrentDevice();
 
     // Approximate vecs per list across all heads and lists
-    idx_t totalLists = numHeads_ * numLists_;
+    idx_t totalLists = 0 ;
+    for (int h = 0; h < numHeads_; ++h) {
+        totalLists += nlists_[h];
+    }
     if (totalLists == 0) return; // Avoid division by zero
 
     auto vecsPerList = totalNumVecs / totalLists;
@@ -135,7 +134,7 @@ void MultiHeadIVFBase::reserveMemory(idx_t totalNumVecs) { // totalNumVecs acros
     auto bytesPerDataList = getGpuVectorsEncodingSize_(vecsPerList);
 
     for (int h = 0; h < numHeads_; ++h) {
-        for (idx_t l = 0; l < numLists_; ++l) {
+        for (idx_t l = 0; l < nlists_[h]; ++l) {
             if (h < deviceListData_.size() && l < deviceListData_[h].size() && deviceListData_[h][l]) {
                  deviceListData_[h][l]->data.reserve(bytesPerDataList, stream);
             }
@@ -149,7 +148,7 @@ void MultiHeadIVFBase::reserveMemory(idx_t totalNumVecs) { // totalNumVecs acros
                                                 : sizeof(idx_t));
 
         for (int h = 0; h < numHeads_; ++h) {
-            for (idx_t l = 0; l < numLists_; ++l) {
+            for (idx_t l = 0; l < nlists_[h]; ++l) {
                  if (h < deviceListIndices_.size() && l < deviceListIndices_[h].size() && deviceListIndices_[h][l]) {
                     deviceListIndices_[h][l]->data.reserve(bytesPerIndexList, stream);
                 }
@@ -171,7 +170,7 @@ void MultiHeadIVFBase::reset() {
     if (isTranslatedCodesStored_) {
         for (int h = 0; h < numHeads_; ++h) {
             if (h < translatedCodes_.size()) {
-                for (idx_t l = 0; l < numLists_; ++l) {
+                for (idx_t l = 0; l < nlists_[h]; ++l) {
                     if (l < translatedCodes_[h].size() && translatedCodes_[h][l]) {
                         cudaFreeHost(translatedCodes_[h][l]);
                         translatedCodes_[h][l] = nullptr; // Good practice
@@ -203,12 +202,12 @@ void MultiHeadIVFBase::reset() {
     listOffsetToUserIndex_.resize(numHeads_);
 
     for (int h = 0; h < numHeads_; ++h) {
-        deviceListData_[h].resize(numLists_);
-        deviceListIndices_[h].resize(numLists_);
-        translatedCodes_[h].resize(numLists_, nullptr); // Initialize with nullptr
-        listOffsetToUserIndex_[h].resize(numLists_);
+        deviceListData_[h].resize(nlists_[h]);
+        deviceListIndices_[h].resize(nlists_[h]);
+        translatedCodes_[h].resize(nlists_[h], nullptr); // Initialize with nullptr
+        listOffsetToUserIndex_[h].resize(nlists_[h]);
 
-        for (idx_t l = 0; l < numLists_; ++l) {
+        for (idx_t l = 0; l < nlists_[h]; ++l) {
             deviceListData_[h][l] = std::make_unique<DeviceIVFList>(resources_, info);
             deviceListIndices_[h][l] = std::make_unique<DeviceIVFList>(resources_, info);
             // listOffsetToUserIndex_[h][l] is an empty std::vector<idx_t> by default
@@ -216,15 +215,15 @@ void MultiHeadIVFBase::reset() {
         }
     }
 
-    if (numLists_ > 0) {
+    if (nlists_.size() > 0) {
         for (int h = 0; h < numHeads_; ++ h) {
-            deviceListDataPointers_[h].resize(numLists_, stream);
+            deviceListDataPointers_[h].resize(nlists_[h], stream);
             deviceListDataPointers_[h].setAll(nullptr, stream);
 
-            deviceListIndexPointers_[h].resize(numLists_, stream);
+            deviceListIndexPointers_[h].resize(nlists_[h], stream);
             deviceListIndexPointers_[h].setAll(nullptr, stream);
 
-            deviceListLengths_[h].resize(numLists_, stream);
+            deviceListLengths_[h].resize(nlists_[h], stream);
             deviceListLengths_[h].setAll(0, stream);
         }
     }
@@ -244,7 +243,7 @@ idx_t MultiHeadIVFBase::getNumHeads() const {
 // Returns the number of lists *per head*
 idx_t MultiHeadIVFBase::getNumLists(idx_t headId) const {
     FAISS_THROW_IF_NOT_FMT(headId < numHeads_, "Head ID %ld out of bounds (%d heads total)", headId, numHeads_);
-    return numLists_; // numLists_ stores lists per head
+    return nlists_[headId]; // numLists_ stores lists per head
 }
 
 
@@ -258,7 +257,7 @@ size_t MultiHeadIVFBase::reclaimMemory_(bool exact) {
     size_t totalReclaimed = 0;
 
     for (int h = 0; h < numHeads_; ++h) {
-        for (idx_t l = 0; l < numLists_; ++l) {
+        for (idx_t l = 0; l < nlists_[h]; ++l) {
             // idx_t globalListIdx = h * numLists_ + l;
 
             if (h < deviceListData_.size() && l < deviceListData_[h].size() && deviceListData_[h][l]) {
@@ -336,16 +335,16 @@ void MultiHeadIVFBase::updateDeviceListInfo_(
             newListLength,
             newDataPointers,
             newIndexPointers,
-            *(deviceListLengths_ + headId),
-            *(deviceListDataPointers_ + headId),
-            *(deviceListIndexPointers_ + headId),
+            deviceListLengths_[headId],
+            deviceListDataPointers_[headId],
+            deviceListIndexPointers_[headId],
             stream);
 }
 
 // Example for getListLength:
 idx_t MultiHeadIVFBase::getListLength(idx_t headId, idx_t listId) const {
     FAISS_THROW_IF_NOT_FMT(headId < numHeads_, "Head ID %ld out of bounds (%d heads total)", headId, numHeads_);
-    FAISS_THROW_IF_NOT_FMT(listId < numLists_, "List ID %ld out of bounds (%ld lists per head)", listId, numLists_);
+    FAISS_THROW_IF_NOT_FMT(listId < nlists_[headId], "List ID %ld out of bounds (%ld lists per head)", listId, nlists_[headId]);
     
     FAISS_ASSERT(headId < deviceListData_.size());
     FAISS_ASSERT(listId < deviceListData_[headId].size());
@@ -356,7 +355,7 @@ idx_t MultiHeadIVFBase::getListLength(idx_t headId, idx_t listId) const {
 
 std::vector<idx_t> MultiHeadIVFBase::getListIndices(idx_t headId, idx_t listId) const {
     FAISS_THROW_IF_NOT_FMT(headId < numHeads_, "Head ID %ld out of bounds (%d heads total)", headId, numHeads_);
-    FAISS_THROW_IF_NOT_FMT(listId < numLists_, "List ID %ld out of bounds (%ld lists per head)", listId, numLists_);
+    FAISS_THROW_IF_NOT_FMT(listId < nlists_[headId], "List ID %ld out of bounds (%ld lists per head)", listId, nlists_[headId]);
     FAISS_ASSERT(headId < deviceListIndices_.size() && listId < deviceListIndices_[headId].size() && deviceListIndices_[headId][listId]);
     FAISS_ASSERT(headId < deviceListData_.size() && listId < deviceListData_[headId].size() && deviceListData_[headId][listId]);
 
@@ -385,7 +384,7 @@ std::vector<idx_t> MultiHeadIVFBase::getListIndices(idx_t headId, idx_t listId) 
 
 std::vector<uint8_t> MultiHeadIVFBase::getListVectorData(idx_t headId, idx_t listId, bool gpuFormat) const {
     FAISS_THROW_IF_NOT_FMT(headId < numHeads_, "Head ID %ld out of bounds (%d heads total)", headId, numHeads_);
-    FAISS_THROW_IF_NOT_FMT(listId < numLists_, "List ID %ld out of bounds (%ld lists per head)", listId, numLists_);
+    FAISS_THROW_IF_NOT_FMT(listId < nlists_[headId], "List ID %ld out of bounds (%ld lists per head)", listId, nlists_[headId]);
     FAISS_ASSERT(headId < deviceListData_.size() && listId < deviceListData_[headId].size() && deviceListData_[headId][listId]);
 
     auto stream = resources_->getDefaultStreamCurrentDevice();
@@ -404,7 +403,7 @@ void MultiHeadIVFBase::copyInvertedListsFrom(const std::vector<InvertedLists*>& 
     for (int h = 0; h < numHeads_; ++h) {
         const InvertedLists* ivf = ivfs[h];
         if (!ivf) continue;
-        FAISS_THROW_IF_NOT_FMT(ivf->nlist == numLists_, "Head %d: Mismatch in nlist. Expected %ld, got %ld", h, numLists_, ivf->nlist);
+        FAISS_THROW_IF_NOT_FMT(ivf->nlist == nlists_[h], "Head %d: Mismatch in nlist. Expected %ld, got %ld", h, nlists_[h], ivf->nlist);
         for (idx_t l = 0; l < ivf->nlist; ++l) {
             addEncodedVectorsToList_(
                     h, l, ivf->get_codes(l), ivf->get_ids(l), ivf->list_size(l));
@@ -419,7 +418,7 @@ void MultiHeadIVFBase::storeTranslatedCodes(const std::vector<InvertedLists*>& i
     for (int h = 0; h < numHeads_; ++h) {
         const InvertedLists* ivf = ivfs[h];
         if (!ivf) continue;
-        FAISS_THROW_IF_NOT_FMT(ivf->nlist == numLists_, "Head %d: Mismatch in nlist. Expected %ld, got %ld", h, numLists_, ivf->nlist);
+        FAISS_THROW_IF_NOT_FMT(ivf->nlist == nlists_[h], "Head %d: Mismatch in nlist. Expected %ld, got %ld", h, nlists_[h], ivf->nlist);
         FAISS_ASSERT(h < translatedCodes_.size());
 
         for (idx_t l = 0; l < ivf->nlist; ++l) {
@@ -466,7 +465,7 @@ std::vector<size_t> MultiHeadIVFBase::getInvertedListsDataMemory(const std::vect
     for (int h = 0; h < numHeads_; ++h) {
         const InvertedLists* ivf = ivfs[h];
         if (!ivf) continue;
-        FAISS_THROW_IF_NOT_FMT(ivf->nlist == numLists_, "Head %d: Mismatch in nlist. Expected %ld, got %ld", h, numLists_, ivf->nlist);
+        FAISS_THROW_IF_NOT_FMT(ivf->nlist == nlists_[h], "Head %d: Mismatch in nlist. Expected %ld, got %ld", h, nlists_[h], ivf->nlist);
         size_t reserveSize = 0;
         for (idx_t l = 0; l < ivf->nlist; ++l) {
             reserveSize += getGpuVectorsEncodingSize_(ivf->list_size(l));
@@ -484,7 +483,7 @@ std::vector<size_t> MultiHeadIVFBase::getInvertedListsIndexMemory(const std::vec
     for (int h = 0; h < numHeads_; ++h) {
         const InvertedLists* ivf = ivfs[h];
         if (!ivf) continue;
-        FAISS_THROW_IF_NOT_FMT(ivf->nlist == numLists_, "Head %d: Mismatch in nlist. Expected %ld, got %ld", h, numLists_, ivf->nlist);
+        FAISS_THROW_IF_NOT_FMT(ivf->nlist == nlists_[h], "Head %d: Mismatch in nlist. Expected %ld, got %ld", h, nlists_[h], ivf->nlist);
         size_t reserveSize = 0;
         if (indicesOptions_ == INDICES_32_BIT || indicesOptions_ == INDICES_64_BIT) {
             for (idx_t l = 0; l < ivf->nlist; ++l) {
@@ -538,7 +537,7 @@ void MultiHeadIVFBase::copyInvertedListsFromNoRealloc(const std::vector<Inverted
     for (int h = 0; h < numHeads_; ++h) {
         const InvertedLists* ivf = ivfs[h];
         if (!ivf) continue;
-        FAISS_THROW_IF_NOT_FMT(ivf->nlist == numLists_, "Head %d: Mismatch in nlist. Expected %ld, got %ld", h, numLists_, ivf->nlist);
+        FAISS_THROW_IF_NOT_FMT(ivf->nlist == nlists_[h], "Head %d: Mismatch in nlist. Expected %ld, got %ld", h, nlists_[h], ivf->nlist);
         FAISS_ASSERT(h < deviceListData_.size() && h < deviceListIndices_.size());
 
         for (idx_t l = 0; l < ivf->nlist; ++l) {
@@ -579,20 +578,20 @@ void MultiHeadIVFBase::copyInvertedListsTo(std::vector<InvertedLists*>& ivfs) {
     for (int h = 0; h < numHeads_; ++h) {
         InvertedLists* ivf = ivfs[h];
         if (!ivf) continue;
-        // FAISS_THROW_IF_NOT_FMT(ivf->nlist == numLists_, "Head %d: Mismatch in nlist for output. Expected %ld, got %ld", h, numLists_, ivf->nlist);
+        // FAISS_THROW_IF_NOT_FMT(ivf->nlist == nlists_[h], "Head %d: Mismatch in nlist for output. Expected %ld, got %ld", h, nlists_[h], ivf->nlist);
         // It's safer to resize/clear the target InvertedLists or assume it's empty and properly sized.
-        // For now, we assume it's ready to receive `numLists_` lists.
+        // For now, we assume it's ready to receive `nlists_[h]` lists.
         // If ivf->nlist is 0, it might mean it's a new InvertedLists object.
-        if (ivf->nlist == 0 && numLists_ > 0) {
+        if (ivf->nlist == 0 && nlists_[h] > 0) {
             // Potentially resize or initialize the target InvertedLists if it's empty.
-            // This depends on InvertedLists API, e.g., ivf->resize(numLists_, code_size_of_ivf)
-            // For now, we'll proceed assuming it can handle add_entries up to numLists_
+            // This depends on InvertedLists API, e.g., ivf->resize(nlists_[h], code_size_of_ivf)
+            // For now, we'll proceed assuming it can handle add_entries up to nlists_[h]
         } else {
-            FAISS_THROW_IF_NOT_FMT(ivf->nlist == numLists_, "Head %d: Mismatch in nlist for output. Expected %ld, got %ld", h, numLists_, ivf->nlist);
+            FAISS_THROW_IF_NOT_FMT(ivf->nlist == nlists_[h], "Head %d: Mismatch in nlist for output. Expected %ld, got %ld", h, nlists_[h], ivf->nlist);
         }
 
 
-        for (idx_t l = 0; l < numLists_; ++l) {
+        for (idx_t l = 0; l < nlists_[h]; ++l) {
             auto listIndices = getListIndices(h, l); // This is already adapted
             auto listData = getListVectorData(h, l, false); // This is already adapted
 
@@ -628,7 +627,7 @@ void MultiHeadIVFBase::updateQuantizer(std::vector<Index*>& quantizers) {
         Index* quantizer = quantizers[h];
         FAISS_THROW_IF_NOT(quantizer && quantizer->is_trained);
         FAISS_THROW_IF_NOT(quantizer->d == getDim());
-        FAISS_THROW_IF_NOT(quantizer->ntotal == numLists_); // numLists_ is per head
+        FAISS_THROW_IF_NOT(quantizer->ntotal == nlists_[h]); // numLists_ is per head
 
         // Get a slice for the current head's centroids
         // This creates a view, not a copy.
@@ -659,7 +658,7 @@ void MultiHeadIVFBase::updateQuantizer(std::vector<Index*>& quantizers) {
             }
         } else {
             // CPU quantizer
-            std::vector<float> vecs(numLists_ * dim_);
+            std::vector<float> vecs(nlists_[h] * dim_);
             quantizer->reconstruct_n(0, quantizer->ntotal, vecs.data());
 
             DeviceTensor<float, 2, true> centroids(
@@ -737,7 +736,7 @@ void MultiHeadIVFBase::addEncodedVectorsToList_(
 void MultiHeadIVFBase::addIndicesFromCpu_(
             idx_t headId, idx_t listId, const idx_t* indices, idx_t numVecs) {
     auto stream = resources_->getDefaultStreamCurrentDevice();
-    idx_t globalListId = headId * numLists_ + listId;
+    idx_t globalListId = headId * nlists_[headId] + listId;
 
     FAISS_ASSERT(headId < deviceListIndices_.size() && listId < deviceListIndices_[headId].size());
     auto& listIndices = deviceListIndices_[headId][listId];
@@ -937,7 +936,7 @@ idx_t MultiHeadIVFBase::addVectors(
                 vectorIdToList_h[i] = -1;
                 continue;
             }
-            FAISS_ASSERT(listIdInHead < numLists_); // numLists_ is lists per head
+            FAISS_ASSERT(listIdInHead < nlists_[h]); // numLists_ is lists per head
             ++numAdded_h;
             vectorIdToList_h[i] = listIdInHead;
 

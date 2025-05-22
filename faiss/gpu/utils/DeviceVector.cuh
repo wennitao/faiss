@@ -62,6 +62,36 @@ class DeviceVector {
         capacity_ = 0;
     }
 
+    DeviceVector(const DeviceVector&) = delete;
+    DeviceVector& operator=(const DeviceVector&) = delete;
+
+    DeviceVector(DeviceVector&& other) {
+        alloc_ = std::move(other.alloc_);
+        num_ = other.num_;
+        capacity_ = other.capacity_;
+        res_ = other.res_;
+        allocInfo_ = other.allocInfo_;
+        useOwnGpuMemoryReservation_ = other.useOwnGpuMemoryReservation_;
+
+        other.num_ = 0;
+        other.capacity_ = 0;
+    }
+
+    DeviceVector& operator=(DeviceVector&& other) {
+        if (this != &other) {
+            alloc_ = std::move(other.alloc_);
+            num_ = other.num_;
+            capacity_ = other.capacity_;
+            res_ = other.res_;
+            allocInfo_ = other.allocInfo_;
+            useOwnGpuMemoryReservation_ = other.useOwnGpuMemoryReservation_;
+
+            other.num_ = 0;
+            other.capacity_ = 0;
+        }
+        return *this;
+    }
+
     size_t size() const {
         return num_;
     }

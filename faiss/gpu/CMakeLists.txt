@@ -40,6 +40,7 @@ set(FAISS_GPU_SRC
   impl/IndexUtils.cu
   impl/IVFAppend.cu
   impl/IVFBase.cu
+  impl/MultiHeadIVFBase.cu
   impl/IVFFlat.cu
   impl/IVFFlatScan.cu
   impl/IVFInterleaved.cu
@@ -111,6 +112,7 @@ set(FAISS_GPU_HEADERS
   impl/IndexUtils.h
   impl/IVFAppend.cuh
   impl/IVFBase.cuh
+  impl/MultiHeadIVFBase.cuh
   impl/IVFFlat.cuh
   impl/IVFFlatScan.cuh
   impl/IVFInterleaved.cuh

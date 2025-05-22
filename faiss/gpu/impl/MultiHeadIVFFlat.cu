@@ -8,7 +8,6 @@
 #include <faiss/gpu/utils/ConversionOperators.cuh>
 #include <faiss/gpu/GpuIndex.h> // For tryCastGpuIndex
 #include <faiss/gpu/utils/HostTensor.cuh> // For toHost
-#include <faiss/gpu/utils/MathOps.cuh> // For runRemapCoarseIndicesToGlobal
 
 
 namespace faiss {
@@ -50,9 +49,9 @@ MultiHeadIVFFlat::MultiHeadIVFFlat(
 
 MultiHeadIVFFlat::~MultiHeadIVFFlat() {}
 
-size_t MultiHeadIVFFlat::getGpuVectorsEncodingSize_(idx_t headId, idx_t numVecs) const {
-    FAISS_ASSERT(headId >= 0 && headId < numHeads_);
-    const auto& currentSQ = scalarQs_[headId];
+size_t MultiHeadIVFFlat::getGpuVectorsEncodingSize_(idx_t numVecs) const {
+    // FAISS_ASSERT(headId >= 0 && headId < numHeads_);
+    const auto& currentSQ = scalarQs_[0];
 
     if (interleavedLayout_) {
         idx_t bits = currentSQ ? currentSQ->bits : 32 /* float */;
@@ -67,22 +66,21 @@ size_t MultiHeadIVFFlat::getGpuVectorsEncodingSize_(idx_t headId, idx_t numVecs)
     }
 }
 
-size_t MultiHeadIVFFlat::getCpuVectorsEncodingSize_(idx_t headId, idx_t numVecs) const {
-    FAISS_ASSERT(headId >= 0 && headId < numHeads_);
-    const auto& currentSQ = scalarQs_[headId];
+size_t MultiHeadIVFFlat::getCpuVectorsEncodingSize_(idx_t numVecs) const {
+    // FAISS_ASSERT(headId >= 0 && headId < numHeads_);
+    const auto& currentSQ = scalarQs_[0];
     size_t sizePerVector = (currentSQ ? currentSQ->code_size : sizeof(float) * dim_);
     return (size_t)numVecs * sizePerVector;
 }
 
 std::vector<uint8_t> MultiHeadIVFFlat::translateCodesToGpu_(
-    idx_t headId,
     std::vector<uint8_t> codes,
     idx_t numVecs) const {
     if (!interleavedLayout_) {
         return codes;
     }
-    FAISS_ASSERT(headId >= 0 && headId < numHeads_);
-    const auto& currentSQ = scalarQs_[headId];
+    // FAISS_ASSERT(headId >= 0 && headId < numHeads_);
+    const auto& currentSQ = scalarQs_[0];
     int bitsPerCode = currentSQ ? currentSQ->bits : 32;
 
     auto up = unpackNonInterleaved(std::move(codes), numVecs, dim_, bitsPerCode);
@@ -90,14 +88,13 @@ std::vector<uint8_t> MultiHeadIVFFlat::translateCodesToGpu_(
 }
 
 std::vector<uint8_t> MultiHeadIVFFlat::translateCodesFromGpu_(
-    idx_t headId,
     std::vector<uint8_t> codes,
     idx_t numVecs) const {
     if (!interleavedLayout_) {
         return codes;
     }
-    FAISS_ASSERT(headId >= 0 && headId < numHeads_);
-    const auto& currentSQ = scalarQs_[headId];
+    // FAISS_ASSERT(headId >= 0 && headId < numHeads_);
+    const auto& currentSQ = scalarQs_[0];
     int bitsPerCode = currentSQ ? currentSQ->bits : 32;
 
     auto up = unpackInterleaved(std::move(codes), numVecs, dim_, bitsPerCode);

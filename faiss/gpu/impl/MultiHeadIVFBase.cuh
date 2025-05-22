@@ -31,7 +31,7 @@ public:
     MultiHeadIVFBase(GpuResources* resources,
             int numHeads, 
             int dim,
-            idx_t nlist,
+            std::vector<idx_t>& nlists,
             faiss::MetricType metric,
             float metricArg,
             bool interleavedLayout,
@@ -104,21 +104,21 @@ public:
     /// Find the approximate k nearest neigbors for `queries` against
     /// our database
     virtual void search(
-            std::vector<Index*> coarseQuantizer,
+            std::vector<Index*>& coarseQuantizer,
             Tensor<float, 2, true>* queries,
-            std::vector<int> nprobe,
-            std::vector<int> k,
+            const std::vector<int>& nprobe,
+            const std::vector<int>& k,
             Tensor<float, 2, true>* outDistances,
             Tensor<idx_t, 2, true>* outIndices) = 0;
 
     /// Performs search when we are already given the IVF cells to look at
     /// (GpuIndexIVF::search_preassigned implementation)
     virtual void searchPreassigned(
-            std::vector<Index*> coarseQuantizer,
+            std::vector<Index*>& coarseQuantizer,
             Tensor<float, 2, true>* vecs,
             Tensor<float, 2, true>* ivfDistances,
             Tensor<idx_t, 2, true>* ivfAssignments,
-            std::vector<int> k,
+            const std::vector<int>& k,
             Tensor<float, 2, true>* outDistances,
             Tensor<idx_t, 2, true>* outIndices,
             bool storePairs) = 0;
@@ -230,8 +230,7 @@ protected:
     const int dim_;
 
     /// Number of inverted lists we maintain
-    // const std::vector<idx_t> numLists_;
-    const idx_t numLists_;
+    const std::vector<idx_t> nlists_;
 
     /// Do we need to also compute residuals when processing vectors?
     bool useResidual_;
@@ -261,15 +260,15 @@ protected:
 
     /// Device representation of all inverted list data
     /// id -> data
-    DeviceVector<void*>* deviceListDataPointers_;
+    std::vector<DeviceVector<void*>> deviceListDataPointers_;
 
     /// Device representation of all inverted list index pointers
     /// id -> data
-    DeviceVector<void*>* deviceListIndexPointers_;
+    std::vector<DeviceVector<void*>> deviceListIndexPointers_;
 
     /// Device representation of all inverted list lengths
     /// id -> length in number of vectors
-    DeviceVector<idx_t>* deviceListLengths_;
+    std::vector<DeviceVector<idx_t>> deviceListLengths_;
 
     /// Maximum list length seen
     idx_t maxListLength_;
