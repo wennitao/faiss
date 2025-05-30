@@ -5,151 +5,151 @@
  * LICENSE file in the root directory of this source tree.
  */
 
- #pragma once
+#pragma once
 
- #include <faiss/Clustering.h>
- #include <faiss/IndexIVF.h> // for SearchParametersIVF
- #include <faiss/gpu/GpuIndex.h>
- #include <faiss/gpu/GpuIndexFlat.h>
- #include <faiss/gpu/GpuIndicesOptions.h>
- #include <memory>
- 
- namespace faiss {
- namespace gpu {
- 
- class GpuIndexFlat;
- class IVFBase;
- 
- struct GpuIndexMultiHeadIVFConfig : public GpuIndexConfig {
-     /// Index storage options for the GPU
-     IndicesOptions indicesOptions = INDICES_64_BIT;
- 
-     /// Configuration for the coarse quantizer object
-     GpuIndexFlatConfig flatConfig;
- 
-     /// This flag controls the CPU fallback logic for coarse quantizer
-     /// component of the index. When set to false (default), the cloner will
-     /// throw an exception for indices not implemented on GPU. When set to
-     /// true, it will fallback to a CPU implementation.
-     bool allowCpuCoarseQuantizer = false;
- };
- 
- /// Base class of all GPU IVF index types. This (for now) deliberately does not
- /// inherit from IndexIVF, as many of the public data members and functionality
- /// in IndexIVF is not supported in the same manner on the GPU.
- class GpuIndexMultiHeadIVF : public GpuIndex, public IndexIVFInterface {
-    public:
-     /// Version that auto-constructs a flat coarse quantizer based on the
-     /// desired metric
-     GpuIndexMultiHeadIVF(
-             GpuResourcesProvider* provider,
-             int dims,
-             faiss::MetricType metric,
-             float metricArg,
-             idx_t nlist,
-             GpuIndexMultiHeadIVFConfig config = GpuIndexMultiHeadIVFConfig());
- 
-     /// Version that takes a coarse quantizer instance. The GpuIndexIVF does not
-     /// own the coarseQuantizer instance by default (functions like IndexIVF).
-     GpuIndexMultiHeadIVF(
-             GpuResourcesProvider* provider,
-             Index* coarseQuantizer,
-             int dims,
-             faiss::MetricType metric,
-             float metricArg,
-             idx_t nlist,
-             GpuIndexMultiHeadIVFConfig config = GpuIndexMultiHeadIVFConfig());
- 
-     ~GpuIndexMultiHeadIVF() override;
- 
-    private:
-     /// Shared initialization functions
-     void init_();
- 
-    public:
-     /// Copy what we need from the CPU equivalent
-     void copyFrom(const faiss::IndexIVF* index);
- 
-     /// Copy what we have to the CPU equivalent
-     void copyTo(faiss::IndexIVF* index) const;
- 
-     /// Should be called if the user ever changes the state of the IVF coarse
-     /// quantizer manually (e.g., substitutes a new instance or changes vectors
-     /// in the coarse quantizer outside the scope of training)
-     virtual void updateQuantizer() = 0;
- 
-     /// Returns the number of inverted lists we're managing
-     virtual idx_t getNumLists() const;
- 
-     /// Returns the number of vectors present in a particular inverted list
-     virtual idx_t getListLength(idx_t listId) const;
- 
-     /// Return the encoded vector data contained in a particular inverted list,
-     /// for debugging purposes.
-     /// If gpuFormat is true, the data is returned as it is encoded in the
-     /// GPU-side representation.
-     /// Otherwise, it is converted to the CPU format.
-     /// compliant format, while the native GPU format may differ.
-     virtual std::vector<uint8_t> getListVectorData(
-             idx_t listId,
-             bool gpuFormat = false) const;
- 
-     /// Return the vector indices contained in a particular inverted list, for
-     /// debugging purposes.
-     virtual std::vector<idx_t> getListIndices(idx_t listId) const;
- 
-     void search_preassigned(
-             idx_t n,
-             const float* x,
-             idx_t k,
-             const idx_t* assign,
-             const float* centroid_dis,
-             float* distances,
-             idx_t* labels,
-             bool store_pairs,
-             const SearchParametersIVF* params = nullptr,
-             IndexIVFStats* stats = nullptr) const override;
- 
-     // not implemented for GPU
-     void range_search_preassigned(
-             idx_t nx,
-             const float* x,
-             float radius,
-             const idx_t* keys,
-             const float* coarse_dis,
-             RangeSearchResult* result,
-             bool store_pairs = false,
-             const IVFSearchParameters* params = nullptr,
-             IndexIVFStats* stats = nullptr) const override;
- 
-    protected:
-     /// From either the current set nprobe or the SearchParameters if available,
-     /// return the nprobe that we should use for the current search
-     int getCurrentNProbe_(const SearchParameters* params) const;
-     void verifyIVFSettings_() const;
-     bool addImplRequiresIDs_() const override;
-     virtual void trainQuantizer_(idx_t n, const float* x);
- 
-     /// Called from GpuIndex for add/add_with_ids
-     void addImpl_(idx_t n, const float* x, const idx_t* ids) override;
- 
-     /// Called from GpuIndex for search
-     void searchImpl_(
-             idx_t n,
-             const float* x,
-             int k,
-             float* distances,
-             idx_t* labels,
-             const SearchParameters* params) const override;
- 
-    protected:
-     /// Our configuration options
-     const GpuIndexMultiHeadIVFConfig ivfConfig_;
- 
-     /// For a trained/initialized index, this is a reference to the base class
-     std::shared_ptr<IVFBase> baseIndex_;
- };
- 
- } // namespace gpu
- } // namespace faiss
- 
+#include <faiss/Clustering.h>
+#include <faiss/IndexIVF.h> // for SearchParametersIVF
+#include <faiss/gpu/GpuIndex.h>
+#include <faiss/gpu/GpuIndexFlat.h>
+#include <faiss/gpu/GpuIndicesOptions.h>
+#include <memory>
+#include <vector>
+
+namespace faiss {
+namespace gpu {
+
+class MultiHeadIVFBase; // Forward declaration
+
+// Configuration struct remains the same as in the prompt
+struct GpuIndexMultiHeadIVFConfig : public GpuIndexConfig {
+    IndicesOptions indicesOptions = INDICES_64_BIT;
+    GpuIndexFlatConfig flatConfig;
+    bool allowCpuCoarseQuantizer = false;
+};
+
+class GpuIndexMultiHeadIVF : public GpuIndex, public IndexIVFInterface {
+   public:
+    GpuIndexMultiHeadIVF(
+            GpuResourcesProvider* provider,
+            int dims,
+            int num_heads, // Added num_heads
+            faiss::MetricType metric,
+            float metricArg,
+            std::vector<idx_t> nlists, 
+            GpuIndexMultiHeadIVFConfig config = GpuIndexMultiHeadIVFConfig());
+
+    GpuIndexMultiHeadIVF(
+            GpuResourcesProvider* provider,
+            std::vector<Index*> coarseQuantizers, // Takes a vector of quantizers
+            int dims,
+            // num_heads is implicit from coarseQuantizers.size()
+            faiss::MetricType metric,
+            float metricArg,
+            std::vector<idx_t> nlists, 
+            GpuIndexMultiHeadIVFConfig config = GpuIndexMultiHeadIVFConfig());
+
+    ~GpuIndexMultiHeadIVF() override;
+
+   private:
+    void init_();
+
+   public:
+    // copyFrom/To for single IndexIVF - behavior needs careful definition (e.g., replicates or uses head 0)
+    virtual void copyFrom(const faiss::IndexIVF* index);
+    virtual void copyTo(faiss::IndexIVF* index) const;
+
+    // Updates the MultiHeadIVFBase with the current state of all coarse quantizers
+    virtual void updateCoarseQuantizers();
+
+    // --- Methods for multi-head access ---
+    int getNumHeads() const;
+    idx_t getNumListsPerHead() const; // nlist for each head (assuming uniform)
+    const std::vector<Index*>& getCoarseQuantizers() const;
+    Index* getCoarseQuantizer(int headId) const;
+
+    virtual idx_t getListLength(int headId, idx_t listIdInHead) const;
+    virtual std::vector<uint8_t> getListVectorData(
+            int headId,
+            idx_t listIdInHead,
+            bool gpuFormat = false) const;
+    virtual std::vector<idx_t> getListIndices(int headId, idx_t listIdInHead) const;
+
+    // --- IndexIVFInterface methods (mostly operate on head 0 or require adaptation) ---
+    // quantizer, nlist, nprobe are inherited from IndexIVFInterface
+    // GpuIndexMultiHeadIVF will set them based on head 0 or overall config.
+
+    // Returns nlist_per_head_
+    virtual idx_t getNumLists() const;
+
+    // Returns getListLength(0, listId)
+    virtual idx_t getListLength(idx_t listId) const;
+
+    // Returns getListVectorData(0, listId, gpuFormat)
+    virtual std::vector<uint8_t> getListVectorData(
+            idx_t listId,
+            bool gpuFormat = false) const;
+
+    // Returns getListIndices(0, listId)
+    virtual std::vector<idx_t> getListIndices(idx_t listId) const;
+
+    void search_preassigned(
+            idx_t n,
+            const float* x,
+            idx_t k,
+            const idx_t* assign, // Global list ids expected
+            const float* centroid_dis,
+            float* distances,
+            idx_t* labels,
+            bool store_pairs,
+            const SearchParametersIVF* params = nullptr,
+            IndexIVFStats* stats = nullptr) const override;
+
+    void range_search_preassigned(
+            idx_t nx,
+            const float* x,
+            float radius,
+            const idx_t* keys,
+            const float* coarse_dis,
+            RangeSearchResult* result,
+            bool store_pairs = false,
+            const IVFSearchParameters* params = nullptr,
+            IndexIVFStats* stats = nullptr) const override;
+
+    /// Set nprobe for a specific head, or all if headId is -1
+    virtual void setNProbe(int headId, idx_t nprobe);
+    /// Get nprobe for a specific head
+    virtual idx_t getNProbe(int headId) const;
+
+
+   protected:
+    std::vector<int> getCurrentNProbePerHead_(const SearchParameters* params) const;
+    void verifyIVFSettings_() const; // Verifies all coarse quantizers
+    bool addImplRequiresIDs_() const override;
+    virtual void trainQuantizers_(idx_t n, const float* x); // Trains all coarse quantizers
+
+    void addImpl_(idx_t n, const float* x, const idx_t* ids) override;
+
+    void searchImpl_(
+            idx_t n,
+            const float* x,
+            int k,
+            float* distances,
+            idx_t* labels,
+            const SearchParameters* params) const override;
+
+   protected:
+    const GpuIndexMultiHeadIVFConfig ivfConfig_;
+    int num_heads_;
+    std::vector<idx_t> nlists_; // nlist for each head
+
+    std::vector<Index*> quantizers_; // One coarse quantizer per head
+    bool own_coarse_quantizers_; // True if we allocated them
+
+    std::vector<idx_t> nprobes_; // nprobe for each head
+
+    // For a trained/initialized index, this is a reference to the base class
+    std::shared_ptr<MultiHeadIVFBase> multiHeadBaseIndex_;
+};
+
+} // namespace gpu
+} // namespace faiss

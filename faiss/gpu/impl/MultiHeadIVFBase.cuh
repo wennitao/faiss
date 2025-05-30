@@ -148,7 +148,7 @@ protected:
     /// returning residuals as well if necessary
     void searchCoarseQuantizer_(
             std::vector<Index*>& coarseQuantizer,
-            std::vector<int>& nprobe,
+            const std::vector<int>& nprobe,
             // guaranteed resident on device
             Tensor<float, 2, true>* vecs,
             // Output: the distances to the closest nprobe IVF cell centroids

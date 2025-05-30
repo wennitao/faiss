@@ -30,6 +30,8 @@ set(FAISS_GPU_SRC
   GpuIndexIVFFlat.cu
   GpuIndexIVFPQ.cu
   GpuIndexIVFScalarQuantizer.cu
+  GpuIndexMultiHeadIVF.cu
+  GpuIndexMultiHeadIVFFlat.cu
   GpuResources.cpp
   StandardGpuResources.cpp
   impl/BinaryDistance.cu
@@ -41,6 +43,7 @@ set(FAISS_GPU_SRC
   impl/IVFAppend.cu
   impl/IVFBase.cu
   impl/MultiHeadIVFBase.cu
+  impl/MultiHeadIVFFlat.cu
   impl/IVFFlat.cu
   impl/IVFFlatScan.cu
   impl/IVFInterleaved.cu
@@ -98,6 +101,8 @@ set(FAISS_GPU_HEADERS
   GpuIndexIVFFlat.h
   GpuIndexIVFPQ.h
   GpuIndexIVFScalarQuantizer.h
+  GpuIndexMultiHeadIVF.h
+  GpuIndexMultiHeadIVFFlat.h
   GpuIndicesOptions.h
   GpuResources.h
   StandardGpuResources.h
@@ -114,6 +119,7 @@ set(FAISS_GPU_HEADERS
   impl/IVFBase.cuh
   impl/MultiHeadIVFBase.cuh
   impl/IVFFlat.cuh
+  impl/MultiHeadIVFFlat.cuh
   impl/IVFFlatScan.cuh
   impl/IVFInterleaved.cuh
   impl/IVFPQ.cuh
