@@ -245,7 +245,7 @@ size_t GpuIndexMultiHeadIVFFlat::reclaimMemory() {
 
 void GpuIndexMultiHeadIVFFlat::reset() {
     DeviceScope scope(config_.device);
-    GpuIndexMultiHeadIVF::reset(); // Resets ntotal in base, but not CQs.
+    // GpuIndexMultiHeadIVF::reset(); // Resets ntotal in base, but not CQs.
     if (index_) {
         index_->reset(); // Resets lists in MultiHeadIVFFlat
     }

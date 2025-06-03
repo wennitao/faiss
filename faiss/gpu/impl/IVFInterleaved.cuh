@@ -446,6 +446,7 @@ void runIVFInterleavedScan(
         GpuResources* res);
 
 void runMultiHeadIVFInterleavedScan(
+        int nhead, 
         Tensor<float, 2, true>* queries,
         Tensor<idx_t, 2, true>* listIds,
         DeviceVector<void*>* listData,
@@ -455,7 +456,7 @@ void runMultiHeadIVFInterleavedScan(
         int k,
         faiss::MetricType metric,
         bool useResidual,
-        Tensor<float, 3, true>& residualBase,
+        Tensor<float, 3, true>* residualBase,
         GpuScalarQuantizer* scalarQ,
         // output
         Tensor<float, 2, true>* outDistances,

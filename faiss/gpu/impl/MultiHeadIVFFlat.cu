@@ -6,6 +6,7 @@
  */
 
 #include <faiss/gpu/GpuIndex.h>
+#include <faiss/gpu/GpuIndicesOptions.h>
 #include <faiss/gpu/GpuResources.h>
 #include <faiss/gpu/impl/InterleavedCodes.h>
 #include <faiss/gpu/impl/RemapIndices.h>
@@ -415,6 +416,23 @@ void MultiHeadIVFFlat::searchImpl_(
     auto stream = resources_->getDefaultStreamCurrentDevice();
     
     if (interleavedLayout_) {
+        runMultiHeadIVFInterleavedScan(
+            numHeads_,
+            queries, 
+            coarseIndices, 
+            deviceListDataPointers_.data(), 
+            deviceListIndexPointers_.data(), 
+            indicesOptions_, 
+            deviceListLengths_.data(), 
+            k[0], 
+            metric_, 
+            useResidual_, 
+            ivfCentroids, 
+            scalarQs_[0].get(), 
+            outDistances, 
+            outIndices, 
+            resources_);
+    } else {
         
     }
 }
