@@ -1,12 +1,15 @@
 #include <faiss/IndexFlat.h>
 #include <faiss/IndexIVFFlat.h>
 #include <faiss/gpu/GpuIndexFlat.h>
+#include <faiss/gpu/GpuIndexMultiHeadIVF.h>
 #include <faiss/gpu/GpuIndexMultiHeadIVFFlat.h> // Changed include
 #include <faiss/gpu/GpuResources.h>
 #include <faiss/gpu/utils/DeviceUtils.h>
+#include <faiss/gpu/impl/MultiHeadIVFBase.cuh>
 #include <faiss/gpu/impl/MultiHeadIVFFlat.cuh> // Changed include
 #include <faiss/gpu/utils/CopyUtils.cuh>
 #include <faiss/invlists/DirectMap.h>
+#include <faiss/invlists/InvertedLists.h>
 
 
 namespace faiss {
@@ -14,16 +17,16 @@ namespace gpu {
 
 GpuIndexMultiHeadIVFFlat::GpuIndexMultiHeadIVFFlat(
         GpuResourcesProvider* provider,
-        const faiss::IndexIVFFlat* index,
+        const faiss::IndexIVFFlat* indices,
         int num_heads_target,
         GpuIndexMultiHeadIVFFlatConfig config)
         : GpuIndexMultiHeadIVF(
                   provider,
-                  index->d,
+                  indices->d,
                   num_heads_target, // num_heads for the GpuIndexMultiHeadIVF base
-                  index->metric_type,
-                  index->metric_arg,
-                  std::vector<idx_t>(num_heads_target, index->nlist), // nlist_per_head
+                  indices->metric_type,
+                  indices->metric_arg,
+                  std::vector<idx_t>(num_heads_target, indices->nlist), // nlist_per_head
                   config),
           ivfFlatConfig_(config),
           reserveMemoryVecs_(0) {
@@ -31,7 +34,7 @@ GpuIndexMultiHeadIVFFlat::GpuIndexMultiHeadIVFFlat(
     // if own_coarse_quantizer_ is true.
     // We then copy the single source quantizer to all of them.
     // And copy invlists to head 0.
-    copyFrom(index);
+    copyFrom(indices);
 }
 
 GpuIndexMultiHeadIVFFlat::GpuIndexMultiHeadIVFFlat(
@@ -94,7 +97,7 @@ GpuIndexMultiHeadIVFFlat::GpuIndexMultiHeadIVFFlat(
                 config_.memorySpace);
         // GpuIndexMultiHeadIVF::multiHeadBaseIndex_ needs to point to this->index_
         this->multiHeadBaseIndex_ = std::static_pointer_cast<MultiHeadIVFBase, MultiHeadIVFFlat>(index_);
-        updateCoarseQuantizers(); // Sync CQs with the new MultiHeadIVFFlat
+        updateQuantizer(); // Sync CQs with the new MultiHeadIVFFlat
     } else {
         this->is_trained = false;
     }
@@ -144,6 +147,45 @@ void GpuIndexMultiHeadIVFFlat::reserveMemory(size_t numVecs) {
     }
 }
 
+void GpuIndexMultiHeadIVFFlat::copyFromIndexOnly (const faiss::IndexIVFFlat* indices) {
+    DeviceScope scope(config_.device);
+
+    GpuIndexMultiHeadIVF::copyFrom (indices) ;
+
+    index_.reset();
+
+    for (int h = 0; h < num_heads_; ++h) {
+        if (!(indices + h)->is_trained) {
+            FAISS_ASSERT(!is_trained);
+            return;
+        }
+    }
+
+    FAISS_ASSERT(is_trained);
+
+    std::vector<idx_t> nlists(num_heads_);
+    for (int h = 0; h < num_heads_; ++h) {
+        nlists[h] = (indices + h)->nlist;
+    }
+
+    setIndex_(
+        resources_.get(),
+        d,
+        num_heads_,
+        nlists,
+        indices->metric_type,
+        indices->metric_arg,
+        false,   // no residual
+        std::vector<faiss::ScalarQuantizer*>(num_heads_, nullptr), // no scalar quantizer
+        ivfFlatConfig_.interleavedLayout,
+        ivfFlatConfig_.indicesOptions,
+        config_.memorySpace);
+    
+    multiHeadBaseIndex_ = std::static_pointer_cast<MultiHeadIVFBase, MultiHeadIVFFlat>(index_);
+    
+    updateQuantizer();
+}
+
 void GpuIndexMultiHeadIVFFlat::copyFrom(const faiss::IndexIVFFlat* index) {
     DeviceScope scope(config_.device);
 
@@ -151,6 +193,7 @@ void GpuIndexMultiHeadIVFFlat::copyFrom(const faiss::IndexIVFFlat* index) {
     // and handles coarse quantizer:
     // - If own_coarse_quantizers_ is true, it creates num_heads_ new CQs.
     // - It then clones index->quantizer into quantizers_[0...num_heads-1].
+    // - And copy invlists to head 0.
     GpuIndexMultiHeadIVF::copyFrom(index); // This sets this->is_trained based on index->is_trained
 
     // Clear out our old data store if any
@@ -184,7 +227,7 @@ void GpuIndexMultiHeadIVFFlat::copyFrom(const faiss::IndexIVFFlat* index) {
             ivfFlatConfig_.indicesOptions,
             config_.memorySpace);
 
-    updateCoarseQuantizers(); // Ensure MultiHeadIVFFlat gets the CQs
+    updateQuantizer(); // Ensure MultiHeadIVFFlat gets the CQs
 }
 
 void GpuIndexMultiHeadIVFFlat::copyTo(faiss::IndexIVFFlat* index) const {
@@ -252,6 +295,15 @@ void GpuIndexMultiHeadIVFFlat::reset() {
     // ntotal is already set to 0 by GpuIndexMultiHeadIVF::reset()
 }
 
+void GpuIndexMultiHeadIVFFlat::updateQuantizer() {
+    DeviceScope scope(config_.device);
+    // MultiHeadIVFFlat::updateQuantizer should update the CQs in the index_
+    // This is a conceptual call, actual implementation depends on MultiHeadIVFFlat
+    if (index_) {
+        index_->updateQuantizer(quantizers_); // Update CQs in MultiHeadIVFFlat
+    }
+}
+
 void GpuIndexMultiHeadIVFFlat::train(idx_t n, const float* x) {
     DeviceScope scope(config_.device);
 
@@ -280,7 +332,7 @@ void GpuIndexMultiHeadIVFFlat::train(idx_t n, const float* x) {
                 config_.memorySpace);
     }
     // Ensure the MultiHeadIVFFlat instance has the latest trained quantizers
-    updateCoarseQuantizers(); // This calls multiHeadBaseIndex_->updateQuantizer(quantizers_)
+    updateQuantizer(); // This calls multiHeadBaseIndex_->updateQuantizer(quantizers_)
 
     if (reserveMemoryVecs_ > 0 && index_) {
         // index_->reserveMemory(reserveMemoryVecs_); // Placeholder
@@ -305,6 +357,35 @@ void GpuIndexMultiHeadIVFFlat::reconstruct_n_for_head(int headId, idx_t i0, idx_
     // Assuming i0, ni refer to IDs that can be found within headId's lists.
     // MultiHeadIVFFlat::reconstruct_n needs to handle this.
     index_->reconstruct_n(headId, i0, ni, out);
+}
+
+void GpuIndexMultiHeadIVFFlat::translateCodesToGpu(const faiss::IndexIVFFlat* indices) {
+    std::vector<InvertedLists*> ivfLists(num_heads_);
+    for (int h = 0; h < num_heads_; ++h) {
+        if (indices && indices[h].invlists) {
+            ivfLists[h] = indices[h].invlists;
+        } else {
+            ivfLists[h] = nullptr; // No lists for this head
+        }
+    }
+    index_ -> storeTranslatedCodes(ivfLists);
+}
+
+void GpuIndexMultiHeadIVFFlat::copyInvertedLists(
+        const faiss::IndexIVFFlat* indices,
+        GpuMemoryReservation* ivfListDataReservation,
+        GpuMemoryReservation* ivfListIndexReservation) {
+    std::vector<InvertedLists*> ivfLists(num_heads_);
+    for (int h = 0; h < num_heads_; ++h) {
+        if (indices && indices[h].invlists) {
+            ivfLists[h] = indices[h].invlists;
+        } else {
+            ivfLists[h] = nullptr; // No lists for this head
+        }
+    }
+    index_ -> copyInvertedListsFromNoRealloc(ivfLists, 
+                                             ivfListDataReservation,
+                                             ivfListIndexReservation);
 }
 
 

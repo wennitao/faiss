@@ -2,6 +2,7 @@
 #include <faiss/IndexIVF.h>
 #include <faiss/clone_index.h>
 #include <faiss/gpu/GpuCloner.h>
+#include <faiss/gpu/GpuIndex.h>
 #include <faiss/gpu/GpuIndexFlat.h>
 #include <faiss/gpu/GpuIndexMultiHeadIVF.h> // Changed include
 #include <faiss/gpu/impl/IndexUtils.h>
@@ -40,7 +41,7 @@ GpuIndexMultiHeadIVF::GpuIndexMultiHeadIVF(
         FAISS_THROW_FMT("unsupported metric type %d", (int)metric_type);
     }
     init_();
-    this->quantizer = quantizers_[0]; // Set IndexIVFInterface quantizer
+    // this->quantizer = quantizers_[0]; // Set IndexIVFInterface quantizer
 }
 
 GpuIndexMultiHeadIVF::GpuIndexMultiHeadIVF(
@@ -105,14 +106,9 @@ void GpuIndexMultiHeadIVF::init_() {
                  FAISS_THROW_FMT("Coarse quantizer for head %d is null and own_coarse_quantizers_ is false.", h);
             }
             is_trained = false; // Needs training if any quantizer was just created
+            quantizers_[h]->is_trained = false; 
         }
     }
-    if (ntotal == 0 && !is_trained) {
-        // if ntotal is 0, it implies it's not trained with data yet,
-        // but quantizers might be trained (e.g. loaded).
-        // is_trained reflects if *this GpuIndexMultiHeadIVF* is ready for search.
-    }
-
 
     verifyIVFSettings_();
 }
@@ -158,86 +154,72 @@ void GpuIndexMultiHeadIVF::verifyIVFSettings_() const {
     }
 }
 
-void GpuIndexMultiHeadIVF::copyFrom(const faiss::IndexIVF* index) {
+void GpuIndexMultiHeadIVF::copyFrom(const faiss::IndexIVF* indices) {
     DeviceScope scope(config_.device);
-    GpuIndex::copyFrom(index); // Copies d, metric, ntotal, is_trained, verbose
-
-    FAISS_ASSERT(index->nlist > 0);
-    // nlist_per_head_ is set in constructor. If index->nlist differs, it's an issue.
-    // FAISS_THROW_IF_NOT_FMT(index->nlist == nlists_[h],
-    //     "nlist of source IndexIVF (%ld) must match nlists_[h] (%ld) of GpuIndexMultiHeadIVF.",
-    //     index->nlist, nlists_[h]);
-
-    // Handle nprobe
-    // We replicate the single nprobe to all heads
-    this->nprobe = index->nprobe; // for IndexIVFInterface compatibility
-    for(int h=0; h<num_heads_; ++h) {
-        validateNProbe(index->nprobe); // faiss::IndexIVF::validateNProbe
-        nprobes_[h] = index->nprobe;
-    }
-
-
-    if (own_coarse_quantizers_) {
-        for (Index* q : quantizers_) delete q;
-    }
-    quantizers_.assign(num_heads_, nullptr);
-
-    FAISS_THROW_IF_NOT(index->quantizer);
+    GpuIndex::copyFrom(indices); // Copies d, metric, ntotal, is_trained, verbose
 
     for (int h = 0; h < num_heads_; ++h) {
-        if (!isGpuIndex(index->quantizer)) {
+        ntotals_[h] = (indices + h)->ntotal; // Assuming all heads share the same ntotal
+        nlists_[h] = (indices + h)->nlist; // Assuming all heads share the same nlist
+        validateNProbe((indices + h)->nprobe); // Validate nprobe for each head
+        nprobes_[h] = (indices + h)->nprobe; // Assuming all heads share the same nprobe
+    }
+
+    if (own_fields) {
+        quantizers_.resize(num_heads_);
+    }
+    
+    for (int h = 0; h < num_heads_; ++h) {
+        FAISS_THROW_IF_NOT((indices + h)->quantizer);
+
+        if (!isGpuIndex((indices + h)->quantizer)) {
+            // The coarse quantizer used in the IndexIVF is non-GPU.
+            // If it is something that we support on the GPU, we wish to copy it
+            // over to the GPU, on the same device that we are on.
             GpuResourcesProviderFromInstance pfi(getResources());
+    
+            // Attempt to clone the index to GPU. If it fails because the coarse
+            // quantizer is not implemented on GPU and the flag to allow CPU
+            // fallback is set, retry it with CPU cloner and re-throw errors.
             try {
                 GpuClonerOptions options;
-                // options.indicesOptions = ivfConfig_.indicesOptions; // Not directly for CQ
                 auto cloner = ToGpuCloner(&pfi, getDevice(), options);
-                quantizers_[h] = cloner.clone_Index(index->quantizer);
+                quantizers_[h] = cloner.clone_Index((indices + h)->quantizer);
             } catch (const std::exception& e) {
                 if (strstr(e.what(), "not implemented on GPU")) {
                     if (ivfConfig_.allowCpuCoarseQuantizer) {
                         Cloner cpuCloner;
-                        quantizers_[h] = cpuCloner.clone_Index(index->quantizer);
+                        quantizer = cpuCloner.clone_Index((indices + h)->quantizer);
                     } else {
                         FAISS_THROW_MSG(
-                                "Coarse quantizer type not implemented on GPU and allowCpuCoarseQuantizer is false. "
-                                "Please set the flag to true to allow CPU fallback for head " + std::to_string(h) + ".");
+                                "This index type is not implemented on "
+                                "GPU and allowCpuCoarseQuantizer is set to false. "
+                                "Please set the flag to true to allow the CPU "
+                                "fallback in cloning.");
                     }
                 } else {
                     throw;
                 }
             }
+            own_fields = true;
         } else {
-             // If source quantizer is GPU, clone it.
-            quantizers_[h] = faiss::clone_index(index->quantizer);
+            // Otherwise, this is a GPU coarse quantizer index instance found in a
+            // CPU instance. It is unclear what we should do here, but for now we'll
+            // flag this as an error (we're expecting a pure CPU index)
+            FAISS_THROW_MSG(
+                    "GpuIndexIVF::copyFrom: copying a CPU IVF index to GPU "
+                    "that already contains a GPU coarse (level 1) quantizer "
+                    "is not currently supported");
         }
-        FAISS_ASSERT(quantizers_[h]->is_trained == index->quantizer->is_trained);
-        FAISS_ASSERT(quantizers_[h]->ntotal == index->quantizer->ntotal);
+    
+        // Validate equality
+        FAISS_ASSERT(ntotals_[h] == (indices + h)->ntotal);
+        FAISS_ASSERT(nlists_[h] == (indices + h)->nlist);
+        FAISS_ASSERT(quantizers_[h]->is_trained == (indices + h)->quantizer->is_trained);
+        FAISS_ASSERT(quantizers_[h]->ntotal == (indices + h)->quantizer->ntotal);
     }
-    own_coarse_quantizers_ = true;
-    this->quantizer = quantizers_[0]; // Update IndexIVFInterface pointer
 
-    // is_trained should be consistent with source index->is_trained
-    // ntotal is copied by GpuIndex::copyFrom
-
-    verifyIVFSettings_();
-
-    // The multiHeadBaseIndex_ needs to be populated with lists from index
-    // This requires multiHeadBaseIndex_ to have a method to copy from a single IndexIVF's InvertedLists
-    // For now, this part is complex and depends on MultiHeadIVFBase implementation details.
-    // Typically, after quantizers are set, updateCoarseQuantizers() is called,
-    // then lists are copied to multiHeadBaseIndex_.
-    if (multiHeadBaseIndex_ && index->invlists) {
-        // This is a placeholder for more complex logic.
-        // multiHeadBaseIndex_->copyInvertedListsFrom(*index->invlists, true /* for all heads */);
-        // Or, one might need to manually iterate and add entries.
-        // For now, we assume the derived class (e.g. GpuIndexMultiHeadIVFFlat) handles this
-        // by creating its specific MultiHeadIVFBase and then copying lists.
-        // A common pattern is to call updateCoarseQuantizers() then add data.
-        // If index->ntotal > 0, it implies data needs to be copied.
-        // This is usually handled by the derived GpuIndex<Product/Flat>IVF's copyFrom.
-        // GpuIndexMultiHeadIVF itself might not directly copy list data.
-    }
-     // After quantizers are set up, the derived class should handle list data copying.
+    verifyIVFSettings_(); // Validate settings after copying
 }
 
 void GpuIndexMultiHeadIVF::copyTo(faiss::IndexIVF* index) const {
@@ -276,7 +258,7 @@ void GpuIndexMultiHeadIVF::copyTo(faiss::IndexIVF* index) const {
 }
 
 
-void GpuIndexMultiHeadIVF::updateCoarseQuantizers() {
+void GpuIndexMultiHeadIVF::updateQuantizer() {
     DeviceScope scope(config_.device);
     FAISS_ASSERT(multiHeadBaseIndex_);
     multiHeadBaseIndex_->updateQuantizer(quantizers_);

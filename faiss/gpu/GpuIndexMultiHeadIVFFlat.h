@@ -25,7 +25,7 @@ class GpuIndexMultiHeadIVFFlat : public GpuIndexMultiHeadIVF {
    public:
     GpuIndexMultiHeadIVFFlat(
             GpuResourcesProvider* provider,
-            const faiss::IndexIVFFlat* index, // Source CPU index
+            const faiss::IndexIVFFlat* indices, // Source CPU index
             int num_heads_target, // Number of heads for the new GPU index
             GpuIndexMultiHeadIVFFlatConfig config = GpuIndexMultiHeadIVFFlatConfig());
 
@@ -53,19 +53,18 @@ class GpuIndexMultiHeadIVFFlat : public GpuIndexMultiHeadIVF {
 
     void reserveMemory(size_t numVecsTotal); // Total vectors across all lists/heads
 
-    void copyFromIndexOnly (const std::vector<faiss::IndexIVFFlat*>& indices);
-    void translateCodesToGPU (const std::vector<faiss::IndexIVFFlat*>& indices);
+    void copyFromIndexOnly (const faiss::IndexIVFFlat* indices);
+    void translateCodesToGpu (const faiss::IndexIVFFlat* indices);
     void copyInvertedLists(
-            const std::vector<faiss::IndexIVFFlat*>& indices,
+            const faiss::IndexIVFFlat* indices,
             GpuMemoryReservation* ivfListDataReservation,
             GpuMemoryReservation* ivfListIndexReservation);
 
-    // copyFrom for a single IndexIVFFlat.
-    // Coarse quantizer is replicated. Lists are copied to head 0.
-    void copyFrom(const faiss::IndexIVFFlat* index);
+    void copyFrom(const faiss::IndexIVFFlat* indices);
 
     // copyTo for a single IndexIVFFlat.
     // Coarse quantizer and lists from head 0 are copied.
+    // deprecated
     void copyTo(faiss::IndexIVFFlat* index) const;
 
     size_t reclaimMemory();
@@ -74,6 +73,8 @@ class GpuIndexMultiHeadIVFFlat : public GpuIndexMultiHeadIVF {
 
     // updateQuantizer is inherited from GpuIndexMultiHeadIVF
     // and calls multiHeadBaseIndex_->updateQuantizer(quantizers_)
+
+    void updateQuantizer() override;
 
     void train(idx_t n, const float* x) override;
 
