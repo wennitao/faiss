@@ -53,6 +53,9 @@ class GpuIndexMultiHeadIVFFlat : public GpuIndexMultiHeadIVF {
 
     void reserveMemory(size_t numVecsTotal); // Total vectors across all lists/heads
 
+    size_t getGpuVectorsEncodingSize (const faiss::IndexIVFFlat* indices) const;
+    size_t getGpuVectorsIndexSize (const faiss::IndexIVFFlat* indices) const;
+
     void copyFromIndexOnly (const faiss::IndexIVFFlat* indices);
     void translateCodesToGpu (const faiss::IndexIVFFlat* indices);
     void copyInvertedLists(

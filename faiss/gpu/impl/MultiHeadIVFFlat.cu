@@ -221,11 +221,16 @@ void MultiHeadIVFFlat::search(
     idx_t totalQueries = 0;
     idx_t maxNprobe = 0;
     for (int h = 0; h < numHeads_; ++h) {
+        std::cerr << "Head " << h << ": nprobe = " << nprobe[h]
+                  << ", k = " << k[h] << ", queries size = " << (queries + h)->getSize(0)
+                  << ", outDistances size = " << (outDistances + h)->getSize(0)
+                  << ", outIndices size = " << (outIndices + h)->getSize(0) << std::endl;
+        std::cerr << (queries + h)->getSize(1) << " dimensions" << std::endl;
         FAISS_ASSERT(nprobe[h] <= GPU_MAX_SELECTION_K);
         FAISS_ASSERT(k[h] <= GPU_MAX_SELECTION_K);
-        FAISS_ASSERT(queries[h].getSize(1) == dim_);
-        FAISS_ASSERT(outDistances[h].getSize(0) == queries[h].getSize(0));
-        FAISS_ASSERT(outIndices[h].getSize(0) == queries[h].getSize(0));
+        FAISS_ASSERT((queries + h)->getSize(1) == dim_);
+        FAISS_ASSERT((outDistances + h)->getSize(0) == (queries + h)->getSize(0));
+        FAISS_ASSERT((outIndices + h)->getSize(0) == (queries + h)->getSize(0));
         
         totalQueries += queries[h].getSize(0);
         maxNprobe = std::max(maxNprobe, (idx_t)std::min(idx_t(nprobe[h]), nlists_[h]));
@@ -248,15 +253,15 @@ void MultiHeadIVFFlat::search(
         coarseDistances[h] = DeviceTensor<float, 2, true>(
                 resources_,
                 makeTempAlloc(AllocType::Other, stream),
-                {queries[h].getSize(0), adjustedNprobe});
+                {(queries + h)->getSize(0), adjustedNprobe});
         coarseIndices[h] = DeviceTensor<idx_t, 2, true>(
                 resources_,
                 makeTempAlloc(AllocType::Other, stream),
-                {queries[h].getSize(0), adjustedNprobe});
+                {(queries + h)->getSize(0), adjustedNprobe});
         residualBase[h] = DeviceTensor<float, 3, true>(
                 resources_,
                 makeTempAlloc(AllocType::Other, stream),
-                {queries[h].getSize(0), adjustedNprobe, dim_});
+                {(queries + h)->getSize(0), adjustedNprobe, dim_});
     }
     
     searchCoarseQuantizer_(

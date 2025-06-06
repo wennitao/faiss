@@ -59,10 +59,10 @@ MultiHeadIVFBase::MultiHeadIVFBase(
     // deviceListDataPointers_.resize(numHeads);
     // deviceListIndexPointers_.resize(numHeads);
     // deviceListLengths_.resize(numHeads);
-    // deviceListData_.resize(numHeads);
-    // deviceListIndices_.resize(numHeads);
-    // translatedCodes_.resize(numHeads);
-    // listOffsetToUserIndex_.resize(numHeads);
+    // deviceListData_.resize(numHeads, std::vector<std::unique_ptr<DeviceIVFList>>());
+    // deviceListIndices_.resize(numHeads, std::vector<std::unique_ptr<DeviceIVFList>>());
+    // translatedCodes_.resize(numHeads, std::vector<uint8_t*>());
+    // listOffsetToUserIndex_.resize(numHeads, std::vector<std::vector<idx_t>>());
     
     for (int h = 0; h < numHeads; ++h) {
         deviceListDataPointers_.emplace_back(
@@ -91,7 +91,7 @@ MultiHeadIVFBase::MultiHeadIVFBase(
     }
 
     // Initialize centroids array for each head
-    ivfCentroids_ = new DeviceTensor<float, 2, true>[numHeads];
+    ivfCentroids_ = new DeviceTensor<float, 2, true>[numHeads_];
     
     reset();
 }
@@ -150,15 +150,17 @@ void MultiHeadIVFBase::reset() {
         }
     }
 
+    deviceListData_.clear();
+    deviceListIndices_.clear();
+    translatedCodes_.clear();
+    listOffsetToUserIndex_.clear();
+
     // Clear all head data
     for (int h = 0; h < numHeads_; ++h) {
-        deviceListData_[h].clear();
-        deviceListIndices_[h].clear();
-        translatedCodes_[h].clear();
-        deviceListDataPointers_[h].clear();
-        deviceListIndexPointers_[h].clear();
-        deviceListLengths_[h].clear();
-        listOffsetToUserIndex_[h].clear();
+        deviceListData_.emplace_back (std::vector<std::unique_ptr<DeviceIVFList>>());
+        deviceListIndices_.emplace_back (std::vector<std::unique_ptr<DeviceIVFList>>());
+        translatedCodes_.emplace_back (std::vector<uint8_t*>());
+        listOffsetToUserIndex_.emplace_back (std::vector<std::vector<idx_t>>());
 
         auto info = AllocInfo(AllocType::IVFLists, getCurrentDevice(), space_, stream);
 
@@ -771,11 +773,11 @@ void MultiHeadIVFBase::searchCoarseQuantizer_(
         if (gpuQuantizer) {
             // We can pass device pointers directly
             gpuQuantizer->search(
-                    vecs[h].getSize(0),
-                    vecs[h].data(),
+                    (vecs + h)->getSize(0),
+                    (vecs + h)->data(),
                     nprobe[h],
-                    distances[h].data(),
-                    indices[h].data());
+                    (distances + h)->data(),
+                    (indices + h)->data());
 
             if (residuals) {
                 gpuQuantizer->compute_residual_n(

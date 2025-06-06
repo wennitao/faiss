@@ -55,11 +55,11 @@ class GpuIndexMultiHeadIVF : public GpuIndex, public IndexIVFInterface {
 
    public:
     // copyFrom/To for single IndexIVF - behavior needs careful definition (e.g., replicates or uses head 0)
-    virtual void copyFrom(const faiss::IndexIVF* indices);
-    virtual void copyTo(faiss::IndexIVF* index) const;
+    void copyFrom(const faiss::IndexIVF* indices);
+    void copyTo(faiss::IndexIVF* index) const;
 
     // Updates the MultiHeadIVFBase with the current state of all coarse quantizers
-    virtual void updateQuantizer();
+    virtual void updateQuantizer() = 0;
 
     // --- Methods for multi-head access ---
     int getNumHeads() const;
@@ -130,7 +130,7 @@ class GpuIndexMultiHeadIVF : public GpuIndex, public IndexIVFInterface {
     void addImpl_(idx_t n, const float* x, const idx_t* ids) override;
 
     void searchImpl_(
-            idx_t n,
+            idx_t n, // number of queries per head
             const float* x,
             int k,
             float* distances,

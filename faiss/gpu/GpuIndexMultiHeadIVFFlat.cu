@@ -147,6 +147,40 @@ void GpuIndexMultiHeadIVFFlat::reserveMemory(size_t numVecs) {
     }
 }
 
+size_t GpuIndexMultiHeadIVFFlat::getGpuVectorsEncodingSize (const faiss::IndexIVFFlat* indices) const {
+    std::vector<InvertedLists*> ivfLists;
+    for (int h = 0; h < indices->nlist; ++h) {
+        if (indices && indices[h].invlists) {
+            ivfLists.push_back(indices[h].invlists);
+        } else {
+            ivfLists.push_back(nullptr); // No lists for this head
+        }
+    }
+    std::vector<size_t> encoding_sizes = index_ -> getInvertedListsDataMemory (ivfLists);
+    size_t total_size = 0;
+    for (size_t size : encoding_sizes) {
+        total_size += size;
+    }
+    return total_size;
+}
+
+size_t GpuIndexMultiHeadIVFFlat::getGpuVectorsIndexSize (const faiss::IndexIVFFlat* indices) const {
+    std::vector<InvertedLists*> ivfLists;
+    for (int h = 0; h < indices->nlist; ++h) {
+        if (indices && indices[h].invlists) {
+            ivfLists.push_back(indices[h].invlists);
+        } else {
+            ivfLists.push_back(nullptr); // No lists for this head
+        }
+    }
+    std::vector<size_t> index_sizes = index_ -> getInvertedListsIndexMemory (ivfLists);
+    size_t total_size = 0;
+    for (size_t size : index_sizes) {
+        total_size += size;
+    }
+    return total_size;
+}
+
 void GpuIndexMultiHeadIVFFlat::copyFromIndexOnly (const faiss::IndexIVFFlat* indices) {
     DeviceScope scope(config_.device);
 
