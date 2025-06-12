@@ -17,6 +17,7 @@
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/gpu/utils/CopyUtils.cuh>
 
+#include <iostream>
 #include <algorithm>
 #include <limits>
 #include <memory>
@@ -211,7 +212,7 @@ void GpuIndex::assign(idx_t n, const float* x, idx_t* labels, idx_t k) const {
 }
 
 void GpuIndex::search(
-        idx_t n,
+        idx_t n, // queries of all headss
         const float* x,
         idx_t k,
         float* distances,
@@ -245,6 +246,12 @@ void GpuIndex::search(
             resources_.get(), config_.device, labels, stream, {n, k});
 
     bool usePaged = false;
+
+    // std::cerr << "distances and labels: " << getDeviceForAddress(distances) << " "
+    //           << getDeviceForAddress(labels) << std::endl;
+
+    // std::cerr << "outDistances and outLabels: " << getDeviceForAddress(outDistances.data())
+    //           << " " << getDeviceForAddress(outLabels.data()) << std::endl;
 
     if (getDeviceForAddress(x) == -1) {
         // It is possible that the user is querying for a vector set size

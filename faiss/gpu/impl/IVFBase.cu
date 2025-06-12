@@ -12,6 +12,7 @@
 #include <faiss/gpu/utils/DeviceUtils.h>
 #include <faiss/invlists/InvertedLists.h>
 #include <thrust/host_vector.h>
+#include <cstddef>
 #include <faiss/gpu/impl/FlatIndex.cuh>
 #include <faiss/gpu/impl/IVFAppend.cuh>
 #include <faiss/gpu/impl/IVFBase.cuh>
@@ -619,6 +620,17 @@ void IVFBase::updateQuantizer(Index* quantizer) {
                     ref32.data(), {ref32.getSize(0), ref32.getSize(1)});
 
             ivfCentroids_ = std::move(refOnly);
+
+            // For debug
+            // auto ivfCentroids_vector = ivfCentroids_.copyToVector(stream);
+            // std::cerr << "ivfCentroids_: " << std::endl ;
+            // for (size_t i = 0; i < numLists_; ++i) {
+            //     std::cerr << "List " << i << ": " << std::endl ;
+            //     for (size_t j = 0; j < dim_; ++j) {
+            //         std::cerr << ivfCentroids_vector[i * dim_ + j] << " ";
+            //     }
+            //     std::cerr << std::endl;
+            // }
         }
     } else {
         // Otherwise, we need to reconstruct all vectors from the index and copy

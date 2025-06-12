@@ -10,6 +10,7 @@
 #include <faiss/gpu/GpuResources.h>
 #include <faiss/gpu/impl/RemapIndices.h>
 #include <faiss/gpu/utils/DeviceUtils.h>
+#include <faiss/impl/FaissAssert.h>
 #include <faiss/invlists/InvertedLists.h>
 #include <thrust/host_vector.h>
 #include <faiss/gpu/impl/FlatIndex.cuh>
@@ -17,6 +18,7 @@
 #include <faiss/gpu/impl/MultiHeadIVFBase.cuh>
 #include <faiss/gpu/utils/CopyUtils.cuh>
 #include <faiss/gpu/utils/DeviceDefs.cuh>
+#include <faiss/gpu/utils/DeviceTensor.cuh>
 #include <faiss/gpu/utils/DeviceVector.cuh>
 #include <faiss/gpu/utils/HostTensor.cuh>
 #include <faiss/gpu/utils/ThrustUtils.cuh>
@@ -728,6 +730,18 @@ void MultiHeadIVFBase::updateQuantizer(std::vector<Index*>& quantizers) {
                         ref32.data(), {ref32.getSize(0), ref32.getSize(1)});
 
                 ivfCentroids_[h] = std::move(refOnly);
+
+                // For debugging, we can print the centroids to verify they are
+                // std::cerr << "Update quantizer for head " << h << std::endl;
+                // auto ivfCentroids_vector = ivfCentroids_[h].copyToVector(stream);
+                // std::cerr << "ivfCentroids_: " << std::endl ;
+                // for (size_t i = 0; i < nlists_[h]; ++i) {
+                //     std::cerr << "List " << i << ": " << std::endl ;
+                //     for (size_t j = 0; j < dim_; ++j) {
+                //         std::cerr << ivfCentroids_vector[i * dim_ + j] << " ";
+                //     }
+                //     std::cerr << std::endl;
+                // }
             }
         } else {
             // Otherwise, we need to reconstruct all vectors from the index and copy
@@ -764,34 +778,58 @@ void MultiHeadIVFBase::searchCoarseQuantizer_(
     FAISS_THROW_IF_NOT(coarseQuantizers.size() == numHeads_);
     FAISS_THROW_IF_NOT(nprobe.size() == numHeads_);
 
+    bool vecsOnDevice = getDeviceForAddress(vecs->data()) == 0;
+    bool distancesOnDevice = getDeviceForAddress(distances->data()) == 0;
+    bool indicesOnDevice = getDeviceForAddress(indices->data()) == 0;
+    FAISS_ASSERT(vecsOnDevice);
+
+    // auto deviceVecs = (DeviceTensor<float, 2, true>*)vecs;
+    auto deviceDistances = (DeviceTensor<float, 2, true>*)distances;
+    auto deviceIndices = (DeviceTensor<idx_t, 2, true>*)indices;
+
     // Process each head separately
     for (int h = 0; h < numHeads_; ++h) {
+        std::cerr << "Head " << h << " searchCoarseQuantizer_" << std::endl;
+        auto vecs_vector = vecs[h].copyToVector(stream);
+        for (size_t i = 0; i < vecs[h].getSize(0); ++i) {
+            std::cerr << "vecs[" << h << "][" << i << "]: ";
+            for (size_t j = 0; j < vecs[h].getSize(1); ++j) {
+                std::cerr << vecs_vector[i * vecs[h].getSize(1) + j] << " ";
+            }
+            std::cerr << std::endl;
+        }
+
         Index* coarseQuantizer = coarseQuantizers[h];
         
         // The provided IVF quantizer may be CPU or GPU resident.
         auto gpuQuantizer = tryCastGpuIndex(coarseQuantizer);
         if (gpuQuantizer) {
+            std::cerr << (vecs + h)->getSize(0) << " vectors, "
+                      << nprobe[h] << " probes" << std::endl;
+
             // We can pass device pointers directly
             gpuQuantizer->search(
                     (vecs + h)->getSize(0),
                     (vecs + h)->data(),
                     nprobe[h],
-                    (distances + h)->data(),
-                    (indices + h)->data());
+                    (deviceDistances + h)->data(),
+                    (deviceIndices + h)->data());
 
             if (residuals) {
+                auto deviceResiduals = (DeviceTensor<float, 3, true>*)residuals;
                 gpuQuantizer->compute_residual_n(
-                        vecs[h].getSize(0) * nprobe[h],
-                        vecs[h].data(),
-                        residuals[h].data(),
-                        indices[h].data());
+                    vecs[h].getSize(0) * nprobe[h],
+                    vecs[h].data(),
+                        deviceResiduals[h].data(),
+                        deviceIndices[h].data());
             }
 
             if (centroids) {
+                auto deviceCentroids = (DeviceTensor<float, 3, true>*)centroids;
                 gpuQuantizer->reconstruct_batch(
-                        vecs[h].getSize(0) * nprobe[h],
-                        indices[h].data(),
-                        centroids[h].data());
+                    vecs[h].getSize(0) * nprobe[h],
+                        deviceIndices[h].data(),
+                        deviceCentroids[h].data());
             }
         } else {
             // temporary host storage for querying a CPU index

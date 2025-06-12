@@ -48,8 +48,8 @@ void IVFINT_RUN<
             {queries.getSize(0), listIds.getSize(1), k});
 
     // TEST ONLY!!!
-//     const dim3 grid(nprobe, std::min(nq, (idx_t)getMaxGridCurrentDevice().y));
-    const dim3 grid(nprobe, std::min(nq, (idx_t)getMaxGridCurrentDevice().y), 8);
+    const dim3 grid(nprobe, std::min(nq, (idx_t)getMaxGridCurrentDevice().y));
+//     const dim3 grid(nprobe, std::min(nq, (idx_t)getMaxGridCurrentDevice().y), 8);
 
     ivfInterleavedScan<
             SUB_CODEC_TYPE,

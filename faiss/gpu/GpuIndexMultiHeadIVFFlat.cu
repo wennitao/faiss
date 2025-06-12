@@ -149,7 +149,7 @@ void GpuIndexMultiHeadIVFFlat::reserveMemory(size_t numVecs) {
 
 size_t GpuIndexMultiHeadIVFFlat::getGpuVectorsEncodingSize (const faiss::IndexIVFFlat* indices) const {
     std::vector<InvertedLists*> ivfLists;
-    for (int h = 0; h < indices->nlist; ++h) {
+    for (int h = 0; h < num_heads_; ++h) {
         if (indices && indices[h].invlists) {
             ivfLists.push_back(indices[h].invlists);
         } else {
@@ -166,7 +166,7 @@ size_t GpuIndexMultiHeadIVFFlat::getGpuVectorsEncodingSize (const faiss::IndexIV
 
 size_t GpuIndexMultiHeadIVFFlat::getGpuVectorsIndexSize (const faiss::IndexIVFFlat* indices) const {
     std::vector<InvertedLists*> ivfLists;
-    for (int h = 0; h < indices->nlist; ++h) {
+    for (int h = 0; h < num_heads_; ++h) {
         if (indices && indices[h].invlists) {
             ivfLists.push_back(indices[h].invlists);
         } else {

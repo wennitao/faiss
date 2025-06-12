@@ -16,6 +16,7 @@
 #include <faiss/gpu/utils/ConversionOperators.cuh>
 #include <faiss/gpu/utils/CopyUtils.cuh>
 #include <faiss/gpu/utils/Float16.cuh>
+#include <iostream>
 #include <limits>
 
 #if defined USE_NVIDIA_CUVS
@@ -221,11 +222,45 @@ void GpuIndexFlat::searchImpl_(
 
     // Input and output data are already resident on the GPU
     Tensor<float, 2, true> queries(const_cast<float*>(x), {n, this->d});
+
+    auto queries_vec = queries.copyToVector(stream);
+    std::cerr << "GpuIndexFlat search" << std::endl;
+    for (size_t i = 0; i < n; i++) {
+        std::cerr << "Query " << i << ": ";
+        for (size_t j = 0; j < this->d; j++) {
+            std::cerr << queries_vec[i * this->d + j] << " ";
+        }
+        std::cerr << std::endl;
+    }
+
     Tensor<float, 2, true> outDistances(distances, {n, k});
     Tensor<idx_t, 2, true> outLabels(labels, {n, k});
 
+    auto device_vectors = data_->getVectorsFloat32Ref();
+    auto data_vector = device_vectors.copyToVector(stream);
+    // std::cerr << "GpuIndexFlat data vectors" << std::endl;
+    // for (size_t i = 0; i < this->ntotal; i++) {
+    //     std::cerr << "Data vector " << i << ": ";
+    //     for (size_t j = 0; j < this->d; j++) {
+    //         std::cerr << data_vector[i * this->d + j] << " ";
+    //     }
+    //     std::cerr << std::endl;
+    // }
+
     data_->query(
             queries, k, metric_type, metric_arg, outDistances, outLabels, true);
+
+    auto outDistances_vec = outDistances.copyToVector(stream);
+    auto outLabels_vec = outLabels.copyToVector(stream);
+    // std::cerr << "GpuIndexFlat search results" << std::endl;
+    // for (int i = 0; i < n * k; i ++) {
+    //     std::cerr << outDistances_vec[i] << " " ;
+    // }
+    // std::cerr << std::endl;
+    // for (int i = 0; i < n * k; i ++) {
+    //     std::cerr << outLabels_vec[i] << " " ;
+    // }
+    // std::cerr << std::endl;
 }
 
 void GpuIndexFlat::reconstruct(idx_t key, float* out) const {

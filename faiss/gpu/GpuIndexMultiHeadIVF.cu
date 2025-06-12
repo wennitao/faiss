@@ -160,10 +160,10 @@ void GpuIndexMultiHeadIVF::copyFrom(const faiss::IndexIVF* indices) {
     DeviceScope scope(config_.device);
     GpuIndex::copyFrom(indices); // Copies d, metric, ntotal, is_trained, verbose
 
-    std::cerr << num_heads_ << std::endl;
-    for (int h = 0; h < num_heads_; h ++) {
-        std::cerr << (indices + h) -> ntotal << std::endl;
-    }
+    // std::cerr << num_heads_ << std::endl;
+    // for (int h = 0; h < num_heads_; h ++) {
+    //     std::cerr << (indices + h) -> ntotal << std::endl;
+    // }
 
     for (int h = 0; h < num_heads_; ++h) {
         ntotals_[h] = (indices + h)->ntotal; // Assuming all heads share the same ntotal
@@ -426,8 +426,8 @@ void GpuIndexMultiHeadIVF::addImpl_(idx_t n, const float* x, const idx_t* xids) 
 
 
 void GpuIndexMultiHeadIVF::searchImpl_(
-        idx_t n, // number of queries per head
-        const float* x, // nhead * n
+        idx_t n, // queries of all heads
+        const float* x,
         int k,
         float* distances,
         idx_t* labels,
@@ -442,12 +442,29 @@ void GpuIndexMultiHeadIVF::searchImpl_(
     Tensor<float, 2, true> outDistances[num_heads_];
     Tensor<idx_t, 2, true> outLabels[num_heads_];
 
+    idx_t query_per_head = n / num_heads_;
+
     for (int h = 0; h < num_heads_; ++h) {
-        // Create output tensors for each head
-        queries[h] = Tensor<float, 2, true>(const_cast<float*>(x) + h * n * d, {n, d});
-        outDistances[h] = Tensor<float, 2, true>(distances + h * n * k, {n, k});
-        outLabels[h] = Tensor<idx_t, 2, true>(labels + h * n * k, {n, k});
+        queries[h] = Tensor<float, 2, true>(
+            const_cast<float*>(x) + h * query_per_head * d, {query_per_head, d});
     }
+
+    for (int h = 0; h < num_heads_; ++h) {
+        outDistances[h] = Tensor<float, 2, true>(
+            distances + h * query_per_head * k, {query_per_head, k});
+    }
+
+    for (int h = 0; h < num_heads_; ++h) {
+        outLabels[h] = Tensor<idx_t, 2, true>(
+            labels + h * query_per_head * k, {query_per_head, k});
+    }
+
+    // for (int h = 0; h < num_heads_; ++h) {
+    //     // Create output tensors for each head
+    //     queries[h] = Tensor<float, 2, true>(const_cast<float*>(x) + h * query_per_head * d, {query_per_head, d});
+    //     outDistances[h] = Tensor<float, 2, true>(distances + h * query_per_head * k, {query_per_head, k});
+    //     outLabels[h] = Tensor<idx_t, 2, true>(labels + h * query_per_head * k, {query_per_head, k});
+    // }
 
     std::vector<int> ks(num_heads_, k);
 

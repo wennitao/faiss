@@ -226,6 +226,7 @@ void MultiHeadIVFFlat::search(
                   << ", outDistances size = " << (outDistances + h)->getSize(0)
                   << ", outIndices size = " << (outIndices + h)->getSize(0) << std::endl;
         std::cerr << (queries + h)->getSize(1) << " dimensions" << std::endl;
+        
         FAISS_ASSERT(nprobe[h] <= GPU_MAX_SELECTION_K);
         FAISS_ASSERT(k[h] <= GPU_MAX_SELECTION_K);
         FAISS_ASSERT((queries + h)->getSize(1) == dim_);
@@ -241,29 +242,84 @@ void MultiHeadIVFFlat::search(
     DeviceTensor<float, 2, true> coarseDistances[numHeads_];
     DeviceTensor<idx_t, 2, true> coarseIndices[numHeads_];
     DeviceTensor<float, 3, true> residualBase[numHeads_];
-    
-    // coarseDistancesPerHead.reserve(numHeads_);
-    // coarseIndicesPerHead.reserve(numHeads_);
-    // residualBasePerHead.reserve(numHeads_);
-    
-    // Allocate memory for each head
+
     for (int h = 0; h < numHeads_; ++h) {
         int adjustedNprobe = int(std::min(idx_t(nprobe[h]), nlists_[h]));
-        
         coarseDistances[h] = DeviceTensor<float, 2, true>(
-                resources_,
-                makeTempAlloc(AllocType::Other, stream),
-                {(queries + h)->getSize(0), adjustedNprobe});
-        coarseIndices[h] = DeviceTensor<idx_t, 2, true>(
-                resources_,
-                makeTempAlloc(AllocType::Other, stream),
-                {(queries + h)->getSize(0), adjustedNprobe});
-        residualBase[h] = DeviceTensor<float, 3, true>(
-                resources_,
-                makeTempAlloc(AllocType::Other, stream),
-                {(queries + h)->getSize(0), adjustedNprobe, dim_});
+            resources_,
+            makeTempAlloc(AllocType::Other, stream),
+            {(queries + h)->getSize(0), adjustedNprobe});
     }
+
+    for (int h = 0; h < numHeads_; ++h) {
+        int adjustedNprobe = int(std::min(idx_t(nprobe[h]), nlists_[h]));
+        coarseIndices[h] = DeviceTensor<idx_t, 2, true>(
+            resources_,
+            makeTempAlloc(AllocType::Other, stream),
+            {(queries + h)->getSize(0), adjustedNprobe});
+    }
+
+    for (int h = 0; h < numHeads_; ++h) {
+        int adjustedNprobe = int(std::min(idx_t(nprobe[h]), nlists_[h]));
+        residualBase[h] = DeviceTensor<float, 3, true>(
+            resources_,
+            makeTempAlloc(AllocType::Other, stream),
+            {(queries + h)->getSize(0), adjustedNprobe, dim_});
+    }
+
+    // std::vector<DeviceTensor<float, 2, true>> coarseDistances;
+    // std::vector<DeviceTensor<idx_t, 2, true>> coarseIndices;
+    // std::vector<DeviceTensor<float, 3, true>> residualBase;
     
+    // coarseDistances.reserve(numHeads_);
+    // coarseIndices.reserve(numHeads_);
+    // residualBase.reserve(numHeads_);
+    
+    // Allocate memory for each head
+    // for (int h = 0; h < numHeads_; ++h) {
+    //     int adjustedNprobe = int(std::min(idx_t(nprobe[h]), nlists_[h]));
+        
+    //     // Create the allocation info
+    //     // auto allocInfo = makeTempAlloc(AllocType::Other, stream);
+        
+    //     // Use emplace_back with proper constructor arguments
+    //     // coarseDistances.emplace_back(
+    //     //         resources_,
+    //     //         allocInfo,
+    //     //         std::initializer_list<idx_t>{(queries + h)->getSize(0), adjustedNprobe});
+    //     // coarseIndices.emplace_back(
+    //     //         resources_,
+    //     //         allocInfo,
+    //     //         std::initializer_list<idx_t>{(queries + h)->getSize(0), adjustedNprobe});
+    //     // residualBase.emplace_back(
+    //     //         resources_,
+    //     //         allocInfo,
+    //     //         std::initializer_list<idx_t>{(queries + h)->getSize(0), adjustedNprobe, dim_});
+    
+    //     coarseDistances[h] = DeviceTensor<float, 2, true>(
+    //             resources_,
+    //             makeTempAlloc(AllocType::Other, stream),
+    //             {(queries + h)->getSize(0), adjustedNprobe});
+    //     coarseIndices[h] = DeviceTensor<idx_t, 2, true>(
+    //             resources_,
+    //             makeTempAlloc(AllocType::Other, stream),
+    //             {(queries + h)->getSize(0), adjustedNprobe});
+    //     residualBase[h] = DeviceTensor<float, 3, true>(
+    //             resources_,
+    //             makeTempAlloc(AllocType::Other, stream),
+    //             {(queries + h)->getSize(0), adjustedNprobe, dim_});
+
+    //     // std::cerr << "Head " << h << ": coarseDistances " << getDeviceForAddress(coarseDistances[h].data())
+    //     //           << ", coarseIndices " << getDeviceForAddress(coarseIndices[h].data()) << std::endl;
+    //     // std::cerr << coarseDistances[h].data() << " " << coarseIndices[h].data() << std::endl;
+
+    //     // std::cerr << "Head " << h << ": coarseDistances " << getDeviceForAddress((coarseDistances + h)->data())
+    //     //           << ", coarseIndices " << getDeviceForAddress((coarseIndices + h)->data()) << std::endl;
+    //     // std::cerr << (coarseDistances + h)->data() << " " << (coarseIndices + h)->data() << std::endl;
+    // }
+    
+    // std::cerr << coarseDistances << " " << coarseIndices << std::endl ;
+
     searchCoarseQuantizer_(
         coarseQuantizers, 
         nprobe, 
@@ -272,7 +328,23 @@ void MultiHeadIVFFlat::search(
         coarseIndices, 
         nullptr, 
         useResidual_ ? residualBase : nullptr);
-    
+
+    // copy coarseDistances and coarseIndices to cpu
+    // for (int h = 0; h < numHeads_; ++h) {
+    //     auto cpuCoarseDistances = coarseDistances[h].copyToVector(stream);
+    //     auto cpuCoarseIndices = coarseIndices[h].copyToVector(stream);
+    //     std::cerr << "Head " << h << ": coarseDistances = " << cpuCoarseDistances.size()
+    //               << ", coarseIndices = " << cpuCoarseIndices.size() << std::endl;
+    //     for (int i = 0; i < cpuCoarseDistances.size(); ++i) {
+    //         std::cerr << cpuCoarseDistances[i] << " ";
+    //     }
+    //     std::cerr << std::endl;
+    //     for (int i = 0; i < cpuCoarseIndices.size(); ++i) {
+    //         std::cerr << cpuCoarseIndices[i] << " ";
+    //     }
+    //     std::cerr << std::endl;
+    // }
+
     searchImpl_(
         queries, 
         coarseDistances, 
@@ -283,6 +355,7 @@ void MultiHeadIVFFlat::search(
         outIndices, 
         false);
     
+    // std::cerr << "MultiHeadIVFFlat search completed." << std::endl;
 }
 
 void MultiHeadIVFFlat::searchPreassigned(

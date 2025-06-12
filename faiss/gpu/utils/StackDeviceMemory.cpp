@@ -9,6 +9,7 @@
 #include <faiss/gpu/utils/StackDeviceMemory.h>
 #include <faiss/gpu/utils/StaticUtils.h>
 #include <faiss/impl/FaissAssert.h>
+#include <iostream>
 #include <algorithm>
 #include <sstream>
 
@@ -137,6 +138,10 @@ void StackDeviceMemory::Stack::returnAlloc(
 
     // All allocations should have been adjusted to a multiple of 16 bytes
     FAISS_ASSERT(size % 16 == 0);
+
+    // std::cerr << "Returning allocation of size " << size
+    //           << " at " << (void*)p << " on stream " << stream << "\n";
+    // std::cerr << "Head is at " << (void*)head_ << "\n";
 
     // This is on our stack
     // Allocations should be freed in the reverse order they are made
