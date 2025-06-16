@@ -47,8 +47,8 @@ MultiHeadIVFFlat::MultiHeadIVFFlat(
                           nlists,
                           metric,
                           metricArg,
-                          useResidual,
                           interleavedLayout,
+                          useResidual,
                           indicesOptions,
                           space) {
     
@@ -239,9 +239,9 @@ void MultiHeadIVFFlat::search(
     
     // Allocate multi-head data structures
     // For coarse distances: one tensor per head
-    DeviceTensor<float, 2, true> coarseDistances[numHeads_];
-    DeviceTensor<idx_t, 2, true> coarseIndices[numHeads_];
-    DeviceTensor<float, 3, true> residualBase[numHeads_];
+    DeviceTensor<float, 2, true> coarseDistances[8];
+    DeviceTensor<idx_t, 2, true> coarseIndices[8];
+    DeviceTensor<float, 3, true> residualBase[8];
 
     for (int h = 0; h < numHeads_; ++h) {
         int adjustedNprobe = int(std::min(idx_t(nprobe[h]), nlists_[h]));
@@ -345,6 +345,8 @@ void MultiHeadIVFFlat::search(
     //     std::cerr << std::endl;
     // }
 
+    // std::cerr << "useResidual_: " << useResidual_ << std::endl;
+
     searchImpl_(
         queries, 
         coarseDistances, 
@@ -355,7 +357,23 @@ void MultiHeadIVFFlat::search(
         outIndices, 
         false);
     
-    // std::cerr << "MultiHeadIVFFlat search completed." << std::endl;
+    std::cerr << "MultiHeadIVFFlat search results:" << std::endl;
+    for (int h = 0; h < numHeads_; ++h) {
+        auto outDistances_vec = outDistances[h].copyToVector(stream);
+        auto outIndices_vec = outIndices[h].copyToVector(stream);
+        std::cerr << "Head " << h << ": outDistances = " << outDistances_vec.size()
+                  << ", outIndices = " << outIndices_vec.size() << std::endl;
+        for (int i = 0; i < outDistances_vec.size(); ++i) {
+            std::cerr << outDistances_vec[i] << " ";
+        }
+        std::cerr << std::endl;
+        for (int i = 0; i < outIndices_vec.size(); ++i) {
+            std::cerr << outIndices_vec[i] << " ";
+        }
+        std::cerr << std::endl;
+    }
+
+    std::cerr << "MultiHeadIVFFlat search completed." << std::endl;
 }
 
 void MultiHeadIVFFlat::searchPreassigned(
@@ -493,6 +511,8 @@ void MultiHeadIVFFlat::searchImpl_(
     
     auto stream = resources_->getDefaultStreamCurrentDevice();
     
+    std::cerr << "interleavedLayout_: " << interleavedLayout_ << std::endl;
+
     if (interleavedLayout_) {
         runMultiHeadIVFInterleavedScan(
             numHeads_,

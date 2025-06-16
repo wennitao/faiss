@@ -53,6 +53,8 @@ MultiHeadIVFBase::MultiHeadIVFBase(
           indicesOptions_(indicesOptions),
           space_(space),
           maxListLength_(0) {
+
+    // std::cerr << "interleavedLayout: " << interleavedLayout_ << std::endl;
     
     FAISS_THROW_IF_NOT(numHeads > 0);
     FAISS_THROW_IF_NOT(nlists.size() == numHeads);

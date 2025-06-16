@@ -132,9 +132,9 @@ __global__ void ivfInterleavedScan2(
 
 template <int ThreadsPerBlock, int NumWarpQ, int NumThreadQ>
 __global__ void multiHeadIvfInterleavedScan2(
-        Tensor<float, 3, true>* distanceIn,
-        Tensor<idx_t, 3, true>* indicesIn,
-        Tensor<idx_t, 2, true>* listIds,
+        DeviceTensor<float, 3, true>* distanceIn,
+        DeviceTensor<idx_t, 3, true>* indicesIn,
+        DeviceTensor<idx_t, 2, true>* listIds,
         int k,
         void** listIndices,
         IndicesOptions opt,
@@ -259,23 +259,10 @@ void runIVFInterleavedScan2(
         cudaStream_t stream) {
 
     // TEST ONLY!!!
-    const dim3 grid (distanceIn.getSize(0), 8);
-// #define IVF_SCAN_2(THREADS, NUM_WARP_Q, NUM_THREAD_Q)        \
-//     ivfInterleavedScan2<THREADS, NUM_WARP_Q, NUM_THREAD_Q>   \
-//             <<<distanceIn.getSize(0), THREADS, 0, stream>>>( \
-//                     distanceIn,                              \
-//                     indicesIn,                               \
-//                     listIds,                                 \
-//                     k,                                       \
-//                     listIndices.data(),                      \
-//                     indicesOptions,                          \
-//                     dir,                                     \
-//                     distanceOut,                             \
-//                     indicesOut)
-
+    // const dim3 grid (distanceIn.getSize(0), 8);
 #define IVF_SCAN_2(THREADS, NUM_WARP_Q, NUM_THREAD_Q)        \
     ivfInterleavedScan2<THREADS, NUM_WARP_Q, NUM_THREAD_Q>   \
-            <<<grid, THREADS, 0, stream>>>( \
+            <<<distanceIn.getSize(0), THREADS, 0, stream>>>( \
                     distanceIn,                              \
                     indicesIn,                               \
                     listIds,                                 \
@@ -285,6 +272,19 @@ void runIVFInterleavedScan2(
                     dir,                                     \
                     distanceOut,                             \
                     indicesOut)
+
+// #define IVF_SCAN_2(THREADS, NUM_WARP_Q, NUM_THREAD_Q)        \
+//     ivfInterleavedScan2<THREADS, NUM_WARP_Q, NUM_THREAD_Q>   \
+//             <<<grid, THREADS, 0, stream>>>( \
+//                     distanceIn,                              \
+//                     indicesIn,                               \
+//                     listIds,                                 \
+//                     k,                                       \
+//                     listIndices.data(),                      \
+//                     indicesOptions,                          \
+//                     dir,                                     \
+//                     distanceOut,                             \
+//                     indicesOut)
 
     if (k == 1) {
         IVF_SCAN_2(128, 1, 1);
@@ -310,17 +310,20 @@ void runIVFInterleavedScan2(
 
 void runMultiHeadIVFInterleavedScan2(
     int numHeads, 
-    Tensor<float, 3, true>* distanceIn,
-    Tensor<idx_t, 3, true>* indicesIn,
-    Tensor<idx_t, 2, true>* listIds,
+    int numQueries, 
+    DeviceTensor<float, 3, true>* distanceIn,
+    DeviceTensor<idx_t, 3, true>* indicesIn,
+    DeviceTensor<idx_t, 2, true>* listIds,
     int k,
     DeviceVector<void*>* listIndices,
     IndicesOptions indicesOptions,
     bool dir,
-    Tensor<float, 2, true>* distanceOut,
-    Tensor<idx_t, 2, true>* indicesOut,
+    DeviceTensor<float, 2, true>* distanceOut,
+    DeviceTensor<idx_t, 2, true>* indicesOut,
     cudaStream_t stream) {
-        const dim3 grid (numHeads, distanceIn[0].getSize(0));
+        // const dim3 grid (numHeads, distanceIn[0].getSize(0));
+        const dim3 grid(numHeads, numQueries);
+        // const dim3 grid(1, numQueries);
 #define MULTI_HEAD_IVF_SCAN_2(THREADS, NUM_WARP_Q, NUM_THREAD_Q)        \
 multiHeadIvfInterleavedScan2<THREADS, NUM_WARP_Q, NUM_THREAD_Q>   \
         <<<grid, THREADS, 0, stream>>>( \

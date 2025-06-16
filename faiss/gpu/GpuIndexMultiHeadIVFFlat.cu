@@ -202,6 +202,8 @@ void GpuIndexMultiHeadIVFFlat::copyFromIndexOnly (const faiss::IndexIVFFlat* ind
         nlists[h] = (indices + h)->nlist;
     }
 
+    // std::cerr << "interleavedLayout: " << ivfFlatConfig_.interleavedLayout << std::endl;
+
     setIndex_(
         resources_.get(),
         d,

@@ -5,6 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <faiss/MetricType.h>
 #include <faiss/gpu/impl/scan/IVFInterleavedImpl.cuh>
 
 namespace faiss {
@@ -112,16 +113,64 @@ void multiHeadIVFINT_RUN<
 
     const auto stream = res->getDefaultStreamCurrentDevice();
 
-    DeviceTensor<float, 3, true> distanceTemp(
-            res,
-            makeTempAlloc(AllocType::Other, stream),
-            {queries -> getSize(0), listIds -> getSize(1), k});
-    DeviceTensor<idx_t, 3, true> indicesTemp(
-            res,
-            makeTempAlloc(AllocType::Other, stream),
-            {queries -> getSize(0), listIds -> getSize(1), k});
+    // DeviceTensor<float, 3, true> distanceTemp(
+    //         res,
+    //         makeTempAlloc(AllocType::Other, stream),
+    //         {queries -> getSize(0), listIds -> getSize(1), k});
+    // DeviceTensor<idx_t, 3, true> indicesTemp(
+    //         res,
+    //         makeTempAlloc(AllocType::Other, stream),
+    //         {queries -> getSize(0), listIds -> getSize(1), k});
+
+    DeviceTensor<float, 3, true> distanceTemp[nhead] ;
+    DeviceTensor<idx_t, 3, true> indicesTemp[nhead] ;
+
+    for (int h = 0; h < nhead; h ++) {
+        distanceTemp[h] = DeviceTensor<float, 3, true> (
+                res, 
+                makeTempAlloc(AllocType::Other, stream),
+                {queries -> getSize(0), listIds -> getSize(1), k});
+    }
+
+    for (int h = 0; h < nhead; h ++) {
+        indicesTemp[h] = DeviceTensor<idx_t, 3, true> (
+                res, 
+                makeTempAlloc(AllocType::Other, stream),
+                {queries -> getSize(0), listIds -> getSize(1), k});
+    }
+
+    Tensor<float, 2, true>* devQueries ;
+    Tensor<float, 3, true>* devResidualBase ;
+    DeviceTensor<idx_t, 2, true>* devListIds ;
+
+    DeviceTensor<float, 3, true>* devDistanceTemp ;
+    DeviceTensor<idx_t, 3, true>* devIndicesTemp ;
+
+    DeviceTensor<float, 2, true>* devOutDistances ;
+    DeviceTensor<idx_t, 2, true>* devOutIndices ;
+
+    cudaMalloc((void**)&devQueries, nhead * sizeof(Tensor<float, 2, true>));
+    cudaMalloc((void**)&devResidualBase, nhead * sizeof(Tensor<float, 3, true>));
+    cudaMalloc((void**)&devListIds, nhead * sizeof(DeviceTensor<idx_t, 2, true>));
+
+    cudaMalloc((void**)&devDistanceTemp, nhead * sizeof(DeviceTensor<float, 3, true>));
+    cudaMalloc((void**)&devIndicesTemp, nhead * sizeof(DeviceTensor<idx_t, 3, true>));
+
+    cudaMalloc((void**)&devOutDistances, nhead * sizeof(DeviceTensor<float, 2, true>));
+    cudaMalloc((void**)&devOutIndices, nhead * sizeof(DeviceTensor<idx_t, 2, true>));
+
+    cudaMemcpy(devQueries, queries, nhead * sizeof(Tensor<float, 2, true>), cudaMemcpyHostToDevice);
+    cudaMemcpy(devResidualBase, residualBase, nhead * sizeof(Tensor<float, 3, true>), cudaMemcpyHostToDevice);
+    cudaMemcpy(devListIds, listIds, nhead * sizeof(DeviceTensor<idx_t, 2, true>), cudaMemcpyHostToDevice);
+
+    cudaMemcpy(devDistanceTemp, distanceTemp, nhead * sizeof(DeviceTensor<float, 3, true>), cudaMemcpyHostToDevice);
+    cudaMemcpy(devIndicesTemp, indicesTemp, nhead * sizeof(DeviceTensor<idx_t, 3, true>), cudaMemcpyHostToDevice);
+
+    cudaMemcpy(devOutDistances, outDistances, nhead * sizeof(DeviceTensor<float, 2, true>), cudaMemcpyHostToDevice);
+    cudaMemcpy(devOutIndices, outIndices, nhead * sizeof(DeviceTensor<idx_t, 2, true>), cudaMemcpyHostToDevice);
 
     const dim3 grid(nprobe, std::min(nq, (idx_t)getMaxGridCurrentDevice().y), nhead);
+    // const dim3 grid(nprobe, std::min(nq, (idx_t)getMaxGridCurrentDevice().y));
 
     multiHeadIvfInterleavedScan<
             SUB_CODEC_TYPE,
@@ -130,30 +179,42 @@ void multiHeadIVFINT_RUN<
             SUB_NUM_WARP_Q,
             SUB_NUM_THREAD_Q>
             <<<grid, SUB_THREADS, codec.getSmemSize(dim), stream>>>(
-                    queries,
-                    residualBase,
-                    listIds,
+                    devQueries,
+                    devResidualBase,
+                    devListIds,
                     listData -> data(),
                     listLengths -> data(),
                     codec,
                     metric,
                     k,
-                    &distanceTemp,
-                    &indicesTemp,
+                    devDistanceTemp,
+                    devIndicesTemp,
                     useResidual);
 
     runMultiHeadIVFInterleavedScan2(
             nhead, 
-            &distanceTemp,
-            &indicesTemp,
-            listIds,
+            nq, 
+            devDistanceTemp,
+            devIndicesTemp,
+            devListIds,
             k,
             listIndices,
             indicesOptions,
             SUB_METRIC_TYPE::kDirection,
-            outDistances,
-            outIndices,
+            devOutDistances,
+            devOutIndices,
             stream);
+
+    cudaMemcpy(outDistances, devOutDistances, nhead * sizeof(DeviceTensor<float, 2, true>), cudaMemcpyDeviceToHost);
+    cudaMemcpy(outIndices, devOutIndices, nhead * sizeof(DeviceTensor<idx_t, 2, true>), cudaMemcpyDeviceToHost);
+    
+    cudaFree(devQueries);
+    cudaFree(devResidualBase);
+    cudaFree(devListIds);
+    cudaFree(devDistanceTemp);
+    cudaFree(devIndicesTemp);
+    cudaFree(devOutDistances);
+    cudaFree(devOutIndices);
 }
 
 } // namespace gpu

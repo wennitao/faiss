@@ -235,15 +235,15 @@ __global__ void multiHeadIvfInterleavedScan(
         // [head][query][dim]
         Tensor<float, 2, true>* queries,
         Tensor<float, 3, true>* residualBase,
-        Tensor<idx_t, 2, true>* listIds,
+        DeviceTensor<idx_t, 2, true>* listIds,
         void** allListData,
         idx_t* listLengths,
         Codec codec,
         Metric metric,
         int k,
         // [head][query][probe][k]
-        Tensor<float, 3, true>* distanceOut,
-        Tensor<idx_t, 3, true>* indicesOut,
+        DeviceTensor<float, 3, true>* distanceOut,
+        DeviceTensor<idx_t, 3, true>* indicesOut,
         const bool Residual) {
     if constexpr ((NumWarpQ == 1 && NumThreadQ == 1) || NumWarpQ >= kWarpSize) {
         extern __shared__ float smem[];
@@ -251,9 +251,10 @@ __global__ void multiHeadIvfInterleavedScan(
         constexpr int kNumWarps = ThreadsPerBlock / kWarpSize;
         const int headId = blockIdx.z;
 
-        for (idx_t queryId = blockIdx.y; queryId < (queries + headId) -> getSize(1);
+        for (idx_t queryId = blockIdx.y; queryId < queries[headId].getSize(0);
              queryId += gridDim.y) {
             auto probeId = blockIdx.x;
+
             idx_t listId = listIds[headId][queryId][probeId];
 
             // Safety guard in case NaNs in input cause no list ID to be
@@ -263,7 +264,7 @@ __global__ void multiHeadIvfInterleavedScan(
             }
 
             // Vector dimension is currently limited to 32 bit
-            int dim = (queries + headId) -> getSize(2);
+            int dim = (queries + headId)->getSize(1);
 
             // FIXME: some issue with getLaneId() and CUDA 10.1 and P4 GPUs?
             auto laneId = threadIdx.x % kWarpSize;
@@ -480,15 +481,16 @@ void runIVFInterleavedScan2(
 
 void runMultiHeadIVFInterleavedScan2(
         int numHeads, 
-        Tensor<float, 3, true>* distanceIn,
-        Tensor<idx_t, 3, true>* indicesIn,
-        Tensor<idx_t, 2, true>* listIds,
+        int numQueries, 
+        DeviceTensor<float, 3, true>* distanceIn,
+        DeviceTensor<idx_t, 3, true>* indicesIn,
+        DeviceTensor<idx_t, 2, true>* listIds,
         int k,
         DeviceVector<void*>* listIndices,
         IndicesOptions indicesOptions,
         bool dir,
-        Tensor<float, 2, true>* distanceOut,
-        Tensor<idx_t, 2, true>* indicesOut,
+        DeviceTensor<float, 2, true>* distanceOut,
+        DeviceTensor<idx_t, 2, true>* indicesOut,
         cudaStream_t stream);
 
 } // namespace gpu

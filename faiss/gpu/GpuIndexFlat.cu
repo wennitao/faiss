@@ -223,21 +223,21 @@ void GpuIndexFlat::searchImpl_(
     // Input and output data are already resident on the GPU
     Tensor<float, 2, true> queries(const_cast<float*>(x), {n, this->d});
 
-    auto queries_vec = queries.copyToVector(stream);
-    std::cerr << "GpuIndexFlat search" << std::endl;
-    for (size_t i = 0; i < n; i++) {
-        std::cerr << "Query " << i << ": ";
-        for (size_t j = 0; j < this->d; j++) {
-            std::cerr << queries_vec[i * this->d + j] << " ";
-        }
-        std::cerr << std::endl;
-    }
+    // auto queries_vec = queries.copyToVector(stream);
+    // std::cerr << "GpuIndexFlat search" << std::endl;
+    // for (size_t i = 0; i < n; i++) {
+    //     std::cerr << "Query " << i << ": ";
+    //     for (size_t j = 0; j < this->d; j++) {
+    //         std::cerr << queries_vec[i * this->d + j] << " ";
+    //     }
+    //     std::cerr << std::endl;
+    // }
 
     Tensor<float, 2, true> outDistances(distances, {n, k});
     Tensor<idx_t, 2, true> outLabels(labels, {n, k});
 
-    auto device_vectors = data_->getVectorsFloat32Ref();
-    auto data_vector = device_vectors.copyToVector(stream);
+    // auto device_vectors = data_->getVectorsFloat32Ref();
+    // auto data_vector = device_vectors.copyToVector(stream);
     // std::cerr << "GpuIndexFlat data vectors" << std::endl;
     // for (size_t i = 0; i < this->ntotal; i++) {
     //     std::cerr << "Data vector " << i << ": ";
