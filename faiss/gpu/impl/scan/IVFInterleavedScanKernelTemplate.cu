@@ -48,9 +48,9 @@ void IVFINT_RUN<
             makeTempAlloc(AllocType::Other, stream),
             {queries.getSize(0), listIds.getSize(1), k});
 
-    // TEST ONLY!!!
     const dim3 grid(nprobe, std::min(nq, (idx_t)getMaxGridCurrentDevice().y));
-//     const dim3 grid(nprobe, std::min(nq, (idx_t)getMaxGridCurrentDevice().y), 8);
+    // TEST ONLY!!!
+    // const dim3 grid(nprobe, std::min(nq, (idx_t)getMaxGridCurrentDevice().y), 8);
 
     ivfInterleavedScan<
             SUB_CODEC_TYPE,
@@ -169,6 +169,21 @@ void multiHeadIVFINT_RUN<
     cudaMemcpy(devOutDistances, outDistances, nhead * sizeof(DeviceTensor<float, 2, true>), cudaMemcpyHostToDevice);
     cudaMemcpy(devOutIndices, outIndices, nhead * sizeof(DeviceTensor<idx_t, 2, true>), cudaMemcpyHostToDevice);
 
+    void*** listData_ptr = new void**[nhead];
+    idx_t** listLengths_ptr = new idx_t*[nhead];
+    for (int h = 0; h < nhead; h ++) {
+        listData_ptr[h] = listData[h].data();
+        listLengths_ptr[h] = listLengths[h].data();
+    }
+
+    void*** devListData; 
+    idx_t** devListLengths;
+
+    cudaMalloc((void**)&devListData, nhead * sizeof(void**));
+    cudaMalloc((void**)&devListLengths, nhead * sizeof(idx_t*));
+    cudaMemcpy(devListData, listData_ptr, nhead * sizeof(void**), cudaMemcpyHostToDevice);
+    cudaMemcpy(devListLengths, listLengths_ptr, nhead * sizeof(idx_t*), cudaMemcpyHostToDevice);
+
     const dim3 grid(nprobe, std::min(nq, (idx_t)getMaxGridCurrentDevice().y), nhead);
     // const dim3 grid(nprobe, std::min(nq, (idx_t)getMaxGridCurrentDevice().y));
 
@@ -182,14 +197,29 @@ void multiHeadIVFINT_RUN<
                     devQueries,
                     devResidualBase,
                     devListIds,
-                    listData -> data(),
-                    listLengths -> data(),
+                    devListData,
+                    devListLengths,
                     codec,
                     metric,
                     k,
                     devDistanceTemp,
                     devIndicesTemp,
                     useResidual);
+
+    // std::cerr << "debug: multiHeadIvfInterleavedScan kernel launched" << std::endl;
+    // for (int h = 0; h < nhead; h ++) {
+    //     std::cerr << "head " << h << std::endl ;
+    //     auto distanceTemp_vector = distanceTemp[h].copyToVector(stream);
+    //     auto indicesTemp_vector = indicesTemp[h].copyToVector(stream);
+    //     for (int i = 0; i < distanceTemp_vector.size(); i++) {
+    //         std::cerr << distanceTemp_vector[i] << " ";
+    //     }
+    //     std::cerr << std::endl;
+    //     for (int i = 0; i < indicesTemp_vector.size(); i++) {
+    //         std::cerr << indicesTemp_vector[i] << " ";
+    //     }
+    //     std::cerr << std::endl;
+    // }
 
     runMultiHeadIVFInterleavedScan2(
             nhead, 
@@ -215,6 +245,9 @@ void multiHeadIVFINT_RUN<
     cudaFree(devIndicesTemp);
     cudaFree(devOutDistances);
     cudaFree(devOutIndices);
+
+    delete[] listData_ptr;
+    delete[] listLengths_ptr;
 }
 
 } // namespace gpu

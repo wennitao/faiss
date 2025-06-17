@@ -136,7 +136,7 @@ __global__ void multiHeadIvfInterleavedScan2(
         DeviceTensor<idx_t, 3, true>* indicesIn,
         DeviceTensor<idx_t, 2, true>* listIds,
         int k,
-        void** listIndices,
+        void*** listIndices,
         IndicesOptions opt,
         bool dir,
         Tensor<float, 2, true>* distanceOut,
@@ -169,7 +169,7 @@ __global__ void multiHeadIvfInterleavedScan2(
                 heap(kFloatMax, kMaxUInt32, smemK, smemV, k);
 
         // nhead nprobe x k
-        idx_t num = (distanceIn + headId) -> getSize(1) * (distanceIn + headId) -> getSize(2);
+        idx_t num = distanceIn[headId].getSize(1) * distanceIn[headId].getSize(2);
 
         const float* distanceBase = distanceIn[headId][queryId].data();
         idx_t limit = utils::roundDown(num, kWarpSize);
@@ -233,9 +233,9 @@ __global__ void multiHeadIvfInterleavedScan2(
                 idx_t listOffset = indicesIn[headId][queryId][curProbe][curK];
 
                 if (opt == INDICES_32_BIT) {
-                    index = (idx_t)((int*)listIndices[listId])[listOffset];
+                    index = (idx_t)((int*)listIndices[headId][listId])[listOffset];
                 } else if (opt == INDICES_64_BIT) {
-                    index = ((idx_t*)listIndices[listId])[listOffset];
+                    index = ((idx_t*)listIndices[headId][listId])[listOffset];
                 } else {
                     index = (listId << 32 | (idx_t)listOffset);
                 }
@@ -321,6 +321,14 @@ void runMultiHeadIVFInterleavedScan2(
     DeviceTensor<float, 2, true>* distanceOut,
     DeviceTensor<idx_t, 2, true>* indicesOut,
     cudaStream_t stream) {
+        void*** listIndicesPtr = new void**[numHeads];
+        for (int h = 0; h < numHeads; ++h) {
+            listIndicesPtr[h] = listIndices[h].data();
+        }
+        void*** devListIndices;
+        cudaMalloc((void**)&devListIndices, numHeads * sizeof(void**));
+        cudaMemcpy(devListIndices, listIndicesPtr, numHeads * sizeof(void**), cudaMemcpyHostToDevice);
+
         // const dim3 grid (numHeads, distanceIn[0].getSize(0));
         const dim3 grid(numHeads, numQueries);
         // const dim3 grid(1, numQueries);
@@ -331,7 +339,7 @@ multiHeadIvfInterleavedScan2<THREADS, NUM_WARP_Q, NUM_THREAD_Q>   \
                 indicesIn,                               \
                 listIds,                                 \
                 k,                                       \
-                listIndices -> data(),                     \
+                devListIndices,                          \
                 indicesOptions,                          \
                 dir,                                     \
                 distanceOut,                             \
@@ -356,7 +364,10 @@ multiHeadIvfInterleavedScan2<THREADS, NUM_WARP_Q, NUM_THREAD_Q>   \
     else if (k <= 2048) {
         MULTI_HEAD_IVF_SCAN_2(64, 2048, 8);
     }
-#endif
+    #endif
+
+    cudaFree(devListIndices);
+    delete[] listIndicesPtr;
 }
 
 void runIVFInterleavedScan(

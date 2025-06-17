@@ -236,8 +236,8 @@ __global__ void multiHeadIvfInterleavedScan(
         Tensor<float, 2, true>* queries,
         Tensor<float, 3, true>* residualBase,
         DeviceTensor<idx_t, 2, true>* listIds,
-        void** allListData,
-        idx_t* listLengths,
+        void*** listData, 
+        idx_t** listLengths, 
         Codec codec,
         Metric metric,
         int k,
@@ -264,7 +264,7 @@ __global__ void multiHeadIvfInterleavedScan(
             }
 
             // Vector dimension is currently limited to 32 bit
-            int dim = (queries + headId)->getSize(1);
+            int dim = queries[headId].getSize(1);
 
             // FIXME: some issue with getLaneId() and CUDA 10.1 and P4 GPUs?
             auto laneId = threadIdx.x % kWarpSize;
@@ -273,8 +273,8 @@ __global__ void multiHeadIvfInterleavedScan(
             using EncodeT = typename Codec::EncodeT;
 
             auto query = queries[headId][queryId].data();
-            auto vecsBase = (EncodeT*)allListData[listId];
-            int numVecs = listLengths[listId];
+            auto vecsBase = (EncodeT*)listData[headId][listId];
+            int numVecs = listLengths[headId][listId];
             auto residualBaseSlice = residualBase[headId][queryId][probeId].data();
 
             constexpr auto kInit = Metric::kDirection ? kFloatMin : kFloatMax;

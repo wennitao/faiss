@@ -221,11 +221,11 @@ void MultiHeadIVFFlat::search(
     idx_t totalQueries = 0;
     idx_t maxNprobe = 0;
     for (int h = 0; h < numHeads_; ++h) {
-        std::cerr << "Head " << h << ": nprobe = " << nprobe[h]
-                  << ", k = " << k[h] << ", queries size = " << (queries + h)->getSize(0)
-                  << ", outDistances size = " << (outDistances + h)->getSize(0)
-                  << ", outIndices size = " << (outIndices + h)->getSize(0) << std::endl;
-        std::cerr << (queries + h)->getSize(1) << " dimensions" << std::endl;
+        // std::cerr << "Head " << h << ": nprobe = " << nprobe[h]
+        //           << ", k = " << k[h] << ", queries size = " << (queries + h)->getSize(0)
+        //           << ", outDistances size = " << (outDistances + h)->getSize(0)
+        //           << ", outIndices size = " << (outIndices + h)->getSize(0) << std::endl;
+        // std::cerr << (queries + h)->getSize(1) << " dimensions" << std::endl;
         
         FAISS_ASSERT(nprobe[h] <= GPU_MAX_SELECTION_K);
         FAISS_ASSERT(k[h] <= GPU_MAX_SELECTION_K);
@@ -357,23 +357,23 @@ void MultiHeadIVFFlat::search(
         outIndices, 
         false);
     
-    std::cerr << "MultiHeadIVFFlat search results:" << std::endl;
-    for (int h = 0; h < numHeads_; ++h) {
-        auto outDistances_vec = outDistances[h].copyToVector(stream);
-        auto outIndices_vec = outIndices[h].copyToVector(stream);
-        std::cerr << "Head " << h << ": outDistances = " << outDistances_vec.size()
-                  << ", outIndices = " << outIndices_vec.size() << std::endl;
-        for (int i = 0; i < outDistances_vec.size(); ++i) {
-            std::cerr << outDistances_vec[i] << " ";
-        }
-        std::cerr << std::endl;
-        for (int i = 0; i < outIndices_vec.size(); ++i) {
-            std::cerr << outIndices_vec[i] << " ";
-        }
-        std::cerr << std::endl;
-    }
+    // std::cerr << "MultiHeadIVFFlat search results:" << std::endl;
+    // for (int h = 0; h < numHeads_; ++h) {
+    //     auto outDistances_vec = outDistances[h].copyToVector(stream);
+    //     auto outIndices_vec = outIndices[h].copyToVector(stream);
+    //     std::cerr << "Head " << h << ": outDistances = " << outDistances_vec.size()
+    //               << ", outIndices = " << outIndices_vec.size() << std::endl;
+    //     for (int i = 0; i < outDistances_vec.size(); ++i) {
+    //         std::cerr << outDistances_vec[i] << " ";
+    //     }
+    //     std::cerr << std::endl;
+    //     for (int i = 0; i < outIndices_vec.size(); ++i) {
+    //         std::cerr << outIndices_vec[i] << " ";
+    //     }
+    //     std::cerr << std::endl;
+    // }
 
-    std::cerr << "MultiHeadIVFFlat search completed." << std::endl;
+    // std::cerr << "MultiHeadIVFFlat search completed." << std::endl;
 }
 
 void MultiHeadIVFFlat::searchPreassigned(
@@ -511,7 +511,7 @@ void MultiHeadIVFFlat::searchImpl_(
     
     auto stream = resources_->getDefaultStreamCurrentDevice();
     
-    std::cerr << "interleavedLayout_: " << interleavedLayout_ << std::endl;
+    // std::cerr << "interleavedLayout_: " << interleavedLayout_ << std::endl;
 
     if (interleavedLayout_) {
         runMultiHeadIVFInterleavedScan(

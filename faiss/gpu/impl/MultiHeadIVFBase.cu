@@ -791,23 +791,23 @@ void MultiHeadIVFBase::searchCoarseQuantizer_(
 
     // Process each head separately
     for (int h = 0; h < numHeads_; ++h) {
-        std::cerr << "Head " << h << " searchCoarseQuantizer_" << std::endl;
-        auto vecs_vector = vecs[h].copyToVector(stream);
-        for (size_t i = 0; i < vecs[h].getSize(0); ++i) {
-            std::cerr << "vecs[" << h << "][" << i << "]: ";
-            for (size_t j = 0; j < vecs[h].getSize(1); ++j) {
-                std::cerr << vecs_vector[i * vecs[h].getSize(1) + j] << " ";
-            }
-            std::cerr << std::endl;
-        }
+        // std::cerr << "Head " << h << " searchCoarseQuantizer_" << std::endl;
+        // auto vecs_vector = vecs[h].copyToVector(stream);
+        // for (size_t i = 0; i < vecs[h].getSize(0); ++i) {
+        //     std::cerr << "vecs[" << h << "][" << i << "]: ";
+        //     for (size_t j = 0; j < vecs[h].getSize(1); ++j) {
+        //         std::cerr << vecs_vector[i * vecs[h].getSize(1) + j] << " ";
+        //     }
+        //     std::cerr << std::endl;
+        // }
 
         Index* coarseQuantizer = coarseQuantizers[h];
         
         // The provided IVF quantizer may be CPU or GPU resident.
         auto gpuQuantizer = tryCastGpuIndex(coarseQuantizer);
         if (gpuQuantizer) {
-            std::cerr << (vecs + h)->getSize(0) << " vectors, "
-                      << nprobe[h] << " probes" << std::endl;
+            // std::cerr << (vecs + h)->getSize(0) << " vectors, "
+            //           << nprobe[h] << " probes" << std::endl;
 
             // We can pass device pointers directly
             gpuQuantizer->search(
