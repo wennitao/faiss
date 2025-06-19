@@ -206,20 +206,20 @@ void multiHeadIVFINT_RUN<
                     devIndicesTemp,
                     useResidual);
 
-    // std::cerr << "debug: multiHeadIvfInterleavedScan kernel launched" << std::endl;
-    // for (int h = 0; h < nhead; h ++) {
-    //     std::cerr << "head " << h << std::endl ;
-    //     auto distanceTemp_vector = distanceTemp[h].copyToVector(stream);
-    //     auto indicesTemp_vector = indicesTemp[h].copyToVector(stream);
-    //     for (int i = 0; i < distanceTemp_vector.size(); i++) {
-    //         std::cerr << distanceTemp_vector[i] << " ";
-    //     }
-    //     std::cerr << std::endl;
-    //     for (int i = 0; i < indicesTemp_vector.size(); i++) {
-    //         std::cerr << indicesTemp_vector[i] << " ";
-    //     }
-    //     std::cerr << std::endl;
-    // }
+    std::cerr << "debug: multiHeadIvfInterleavedScan kernel launched" << std::endl;
+    for (int h = 0; h < nhead; h ++) {
+        std::cerr << "head " << h << std::endl ;
+        auto distanceTemp_vector = distanceTemp[h].copyToVector(stream);
+        auto indicesTemp_vector = indicesTemp[h].copyToVector(stream);
+        for (int i = 0; i < distanceTemp_vector.size(); i++) {
+            std::cerr << distanceTemp_vector[i] << " ";
+        }
+        std::cerr << std::endl;
+        for (int i = 0; i < indicesTemp_vector.size(); i++) {
+            std::cerr << indicesTemp_vector[i] << " ";
+        }
+        std::cerr << std::endl;
+    }
 
     runMultiHeadIVFInterleavedScan2(
             nhead, 
@@ -245,6 +245,8 @@ void multiHeadIVFINT_RUN<
     cudaFree(devIndicesTemp);
     cudaFree(devOutDistances);
     cudaFree(devOutIndices);
+    cudaFree(devListData);
+    cudaFree(devListLengths);
 
     delete[] listData_ptr;
     delete[] listLengths_ptr;

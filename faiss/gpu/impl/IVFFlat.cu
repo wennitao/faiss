@@ -346,7 +346,7 @@ void IVFFlat::searchImpl_(
 
     auto stream = resources_->getDefaultStreamCurrentDevice();
 
-    std::cerr << "interleavedLayout_: " << interleavedLayout_ << std::endl;
+    // std::cerr << "interleavedLayout_: " << interleavedLayout_ << std::endl;
 
     if (interleavedLayout_) {
         runIVFInterleavedScan(

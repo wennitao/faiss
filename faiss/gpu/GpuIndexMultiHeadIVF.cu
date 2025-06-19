@@ -107,12 +107,17 @@ void GpuIndexMultiHeadIVF::init_() {
             } else {
                  FAISS_THROW_FMT("Coarse quantizer for head %d is null and own_coarse_quantizers_ is false.", h);
             }
+
+            own_fields = true;
             is_trained = false; // Needs training if any quantizer was just created
             quantizers_[h]->is_trained = false; 
         }
     }
 
     verifyIVFSettings_();
+
+    // std::cerr << "GpuIndexMultiHeadIVF initialized." << std::endl;
+    // std::cerr << resources_.use_count() << std::endl;
 }
 
 GpuIndexMultiHeadIVF::~GpuIndexMultiHeadIVF() {
@@ -172,8 +177,15 @@ void GpuIndexMultiHeadIVF::copyFrom(const faiss::IndexIVF* indices) {
         nprobes_[h] = (indices + h)->nprobe; // Assuming all heads share the same nprobe
     }
 
+    // std::cerr << "own_fields: " << own_fields << std::endl;
     if (own_fields) {
-        quantizers_.resize(num_heads_);
+        for (int h = 0; h < num_heads_; ++h) {
+            if (quantizers_[h]) {
+                delete quantizers_[h]; // Delete existing quantizer if it owns fields
+            }
+        }
+        quantizers_.clear();
+        quantizers_.resize(num_heads_); // Resize to num_heads_ after clearing
     }
     
     for (int h = 0; h < num_heads_; ++h) {

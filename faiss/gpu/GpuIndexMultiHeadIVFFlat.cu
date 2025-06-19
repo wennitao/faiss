@@ -49,6 +49,7 @@ GpuIndexMultiHeadIVFFlat::GpuIndexMultiHeadIVFFlat(
           reserveMemoryVecs_(0) {
     // Base class GpuIndexMultiHeadIVF handles creation of empty quantizers.
     // MultiHeadIVFFlat index (this->index_) is not constructed until training.
+    // std::cerr << resources_.use_count() << std::endl ;
 }
 
 GpuIndexMultiHeadIVFFlat::GpuIndexMultiHeadIVFFlat(
@@ -130,8 +131,9 @@ void GpuIndexMultiHeadIVFFlat::setIndex_(
             interleavedLayout,
             indicesOpt,
             mspace));
+    
     // GpuIndexMultiHeadIVF::multiHeadBaseIndex_ should point to this.
-    multiHeadBaseIndex_ = std::static_pointer_cast<MultiHeadIVFBase, MultiHeadIVFFlat>(index_);
+    // multiHeadBaseIndex_ = std::static_pointer_cast<MultiHeadIVFBase, MultiHeadIVFFlat>(index_);
 }
 
 
@@ -188,6 +190,8 @@ void GpuIndexMultiHeadIVFFlat::copyFromIndexOnly (const faiss::IndexIVFFlat* ind
 
     index_.reset();
 
+    multiHeadBaseIndex_.reset();
+
     for (int h = 0; h < num_heads_; ++h) {
         if (!(indices + h)->is_trained) {
             FAISS_ASSERT(!is_trained);
@@ -220,6 +224,9 @@ void GpuIndexMultiHeadIVFFlat::copyFromIndexOnly (const faiss::IndexIVFFlat* ind
     multiHeadBaseIndex_ = std::static_pointer_cast<MultiHeadIVFBase, MultiHeadIVFFlat>(index_);
     
     updateQuantizer();
+
+    // std::cerr << "after copyFromIndexOnly, resources use count: " ;
+    // std::cerr << resources_.use_count() << std::endl ;
 }
 
 void GpuIndexMultiHeadIVFFlat::copyFrom(const faiss::IndexIVFFlat* index) {

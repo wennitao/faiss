@@ -79,7 +79,11 @@ GpuIndex::GpuIndex(
     metric_arg = metricArg;
 
     FAISS_ASSERT((bool)resources_);
+    // std::cerr << resources_.get() << std::endl;
     resources_->initializeForDevice(config_.device);
+    
+    // std::cerr << "GpuIndex initialized." << std::endl;
+    // std::cerr << resources_.use_count() << std::endl;
 }
 
 int GpuIndex::getDevice() const {

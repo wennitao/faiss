@@ -446,6 +446,8 @@ void StandardGpuResourcesImpl::initializeForDevice(int device) {
     allocs_[device] = std::unordered_map<void*, AllocRequest>();
 
     FAISS_ASSERT(tempMemory_.count(device) == 0);
+    // std::cerr << "StandardGpuResources: allocating temporary memory for device "
+    //           << device << " of size " << tempMemSize_ << " bytes\n";
     auto mem = std::make_unique<StackDeviceMemory>(
             this,
             device,

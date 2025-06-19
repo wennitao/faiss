@@ -102,12 +102,19 @@ MultiHeadIVFBase::MultiHeadIVFBase(
 
 MultiHeadIVFBase::~MultiHeadIVFBase() {
     if (isTranslatedCodesStored_) {
+        std::cerr << "Freeing translated codes" << std::endl;
         for (int h = 0; h < numHeads_; ++h) {
             for (auto& ptr : translatedCodes_[h]) {
                 cudaFreeHost(ptr);
             }
         }
     }
+
+    deviceListData_.clear();
+    deviceListIndices_.clear();
+    translatedCodes_.clear();
+    listOffsetToUserIndex_.clear();
+    
     delete[] ivfCentroids_;
 }
 

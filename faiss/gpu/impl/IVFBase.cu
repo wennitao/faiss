@@ -12,6 +12,7 @@
 #include <faiss/gpu/utils/DeviceUtils.h>
 #include <faiss/invlists/InvertedLists.h>
 #include <thrust/host_vector.h>
+#include <cinttypes>
 #include <cstddef>
 #include <faiss/gpu/impl/FlatIndex.cuh>
 #include <faiss/gpu/impl/IVFAppend.cuh>
@@ -74,7 +75,15 @@ IVFBase::IVFBase(
     reset();
 }
 
-IVFBase::~IVFBase() {}
+IVFBase::~IVFBase() {
+    if (isTranslatedCodesStored_) {
+        for (auto& ptr : translatedCodes_) {
+            if (ptr) {
+                cudaFreeHost(ptr);
+            }
+        }
+    }
+}
 
 void IVFBase::reserveMemory(idx_t numVecs) {
     auto stream = resources_->getDefaultStreamCurrentDevice();
