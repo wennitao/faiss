@@ -137,6 +137,10 @@ void multiHeadIVFINT_RUN<
                 res, 
                 makeTempAlloc(AllocType::Other, stream),
                 {queries -> getSize(0), listIds -> getSize(1), k});
+        // std::cerr << "debug: indicesTemp[" << h << "] size: " 
+        //           << indicesTemp[h].getSize(0) << ", " 
+        //           << indicesTemp[h].getSize(1) << ", " 
+        //           << indicesTemp[h].getSize(2) << std::endl;
     }
 
     Tensor<float, 2, true>* devQueries ;
@@ -206,20 +210,20 @@ void multiHeadIVFINT_RUN<
                     devIndicesTemp,
                     useResidual);
 
-    std::cerr << "debug: multiHeadIvfInterleavedScan kernel launched" << std::endl;
-    for (int h = 0; h < nhead; h ++) {
-        std::cerr << "head " << h << std::endl ;
-        auto distanceTemp_vector = distanceTemp[h].copyToVector(stream);
-        auto indicesTemp_vector = indicesTemp[h].copyToVector(stream);
-        for (int i = 0; i < distanceTemp_vector.size(); i++) {
-            std::cerr << distanceTemp_vector[i] << " ";
-        }
-        std::cerr << std::endl;
-        for (int i = 0; i < indicesTemp_vector.size(); i++) {
-            std::cerr << indicesTemp_vector[i] << " ";
-        }
-        std::cerr << std::endl;
-    }
+//     std::cerr << "debug: multiHeadIvfInterleavedScan kernel launched" << std::endl;
+//     for (int h = 0; h < nhead; h ++) {
+//         std::cerr << "head " << h << std::endl ;
+//         auto distanceTemp_vector = distanceTemp[h].copyToVector(stream);
+//         auto indicesTemp_vector = indicesTemp[h].copyToVector(stream);
+//         for (int i = 0; i < distanceTemp_vector.size(); i++) {
+//             std::cerr << distanceTemp_vector[i] << " ";
+//         }
+//         std::cerr << std::endl;
+//         for (int i = 0; i < indicesTemp_vector.size(); i++) {
+//             std::cerr << indicesTemp_vector[i] << " ";
+//         }
+//         std::cerr << std::endl;
+//     }
 
     runMultiHeadIVFInterleavedScan2(
             nhead, 

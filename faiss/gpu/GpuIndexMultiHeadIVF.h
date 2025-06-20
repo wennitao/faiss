@@ -92,6 +92,14 @@ class GpuIndexMultiHeadIVF : public GpuIndex, public IndexIVFInterface {
     // Returns getListIndices(0, listId)
     virtual std::vector<idx_t> getListIndices(idx_t listId) const;
 
+    void search_quantizers(
+            idx_t n, 
+            const float* x, 
+            idx_t k, 
+            float* distances, 
+            idx_t* labels,
+            const SearchParameters* params = nullptr) const;
+
     void search_preassigned(
             idx_t n,
             const float* x,

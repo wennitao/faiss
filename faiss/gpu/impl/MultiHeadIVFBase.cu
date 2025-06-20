@@ -102,7 +102,7 @@ MultiHeadIVFBase::MultiHeadIVFBase(
 
 MultiHeadIVFBase::~MultiHeadIVFBase() {
     if (isTranslatedCodesStored_) {
-        std::cerr << "Freeing translated codes" << std::endl;
+        // std::cerr << "Freeing translated codes" << std::endl;
         for (int h = 0; h < numHeads_; ++h) {
             for (auto& ptr : translatedCodes_[h]) {
                 cudaFreeHost(ptr);
@@ -793,8 +793,6 @@ void MultiHeadIVFBase::searchCoarseQuantizer_(
     FAISS_ASSERT(vecsOnDevice);
 
     // auto deviceVecs = (DeviceTensor<float, 2, true>*)vecs;
-    auto deviceDistances = (DeviceTensor<float, 2, true>*)distances;
-    auto deviceIndices = (DeviceTensor<idx_t, 2, true>*)indices;
 
     // Process each head separately
     for (int h = 0; h < numHeads_; ++h) {
@@ -815,7 +813,8 @@ void MultiHeadIVFBase::searchCoarseQuantizer_(
         if (gpuQuantizer) {
             // std::cerr << (vecs + h)->getSize(0) << " vectors, "
             //           << nprobe[h] << " probes" << std::endl;
-
+            auto deviceDistances = (DeviceTensor<float, 2, true>*)distances;
+            auto deviceIndices = (DeviceTensor<idx_t, 2, true>*)indices;
             // We can pass device pointers directly
             gpuQuantizer->search(
                     (vecs + h)->getSize(0),

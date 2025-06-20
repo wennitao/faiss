@@ -208,7 +208,7 @@ void GpuIndexMultiHeadIVF::copyFrom(const faiss::IndexIVF* indices) {
                 if (strstr(e.what(), "not implemented on GPU")) {
                     if (ivfConfig_.allowCpuCoarseQuantizer) {
                         Cloner cpuCloner;
-                        quantizer = cpuCloner.clone_Index((indices + h)->quantizer);
+                        quantizers_[h] = cpuCloner.clone_Index((indices + h)->quantizer);
                     } else {
                         FAISS_THROW_MSG(
                                 "This index type is not implemented on "
@@ -484,12 +484,24 @@ void GpuIndexMultiHeadIVF::searchImpl_(
                                 outDistances, outLabels);
 }
 
-
-void GpuIndexMultiHeadIVF::search_preassigned(
-        idx_t n,
+void GpuIndexMultiHeadIVF::search_quantizers(
+        idx_t n, // queries of all heads
         const float* x,
         idx_t k,
-        const idx_t* assign, // global list ids
+        float* distances,
+        idx_t* labels,
+        const SearchParameters* params) const {
+    idx_t query_per_head = n / num_heads_;
+    for (int h = 0; h < num_heads_; ++h) {
+        quantizers_[h]->search(query_per_head, x + h * query_per_head * d, k, distances + h * query_per_head * k, labels + h * query_per_head * k, params);
+    }
+}
+
+void GpuIndexMultiHeadIVF::search_preassigned(
+        idx_t n, // queries of all heads
+        const float* x,
+        idx_t k,
+        const idx_t* assign,
         const float* centroid_dis,
         float* distances,
         idx_t* labels,
@@ -513,55 +525,93 @@ void GpuIndexMultiHeadIVF::search_preassigned(
         return;
     }
 
-    std::vector<int> current_nprobes_per_head = getCurrentNProbePerHead_(params);
-    // For search_preassigned, nprobe is implicitly defined by the shape of `assign` and `centroid_dis`.
-    // Let's assume `assign` is (n, total_probes_for_query) where total_probes_for_query
-    // might be different from nprobe_per_head_[h] * num_heads.
-    // The `MultiHeadIVFBase::searchPreassigned` needs to handle this.
-    // The `assign` tensor contains global list IDs.
+    idx_t query_per_head = n / num_heads_;
+    idx_t use_nprobe = params ? params->nprobe : nprobes_[0];
 
-    // Ensure that all data/output buffers are resident on our desired device
-    auto vecsDevice = toDeviceTemporary<float, 2>(
-            resources_.get(), config_.device, const_cast<float*>(x), stream, {n, d});
+    DeviceTensor<float, 2, true> vecsDevice[num_heads_];
+    for (int h = 0; h < num_heads_; ++h) {
+        vecsDevice[h] = toDeviceTemporary<float, 2>(
+            resources_.get(), 
+            config_.device, 
+            const_cast<float*>(x) + h * query_per_head * d,
+            stream, 
+            {query_per_head, d});
+    }
+    Tensor<float, 2, true> vecs[num_heads_];
+    for (int h = 0; h < num_heads_; ++h) {
+        vecs[h] = Tensor<float, 2, true>(
+            const_cast<float*>(vecsDevice[h].data()), 
+            {query_per_head, d});
+    }
 
-    // The `assign` and `centroid_dis` are (n, num_probes_per_query_total).
-    // These are global. MultiHeadIVFBase::searchPreassigned needs to handle this.
-    // The number of probes here is determined by the input 'assign' tensor's second dimension.
-    // Let's assume it's passed as a single tensor and MultiHeadIVFBase::searchPreassigned
-    // can use it directly or it's processed per head if needed.
-    // The current MultiHeadIVFBase::searchPreassigned takes vectors of tensors.
-    // This implies inputs should be split per head if they are head-specific.
-    // However, `assign` contains global list IDs, so it's not inherently per-head.
+    DeviceTensor<float, 2, true> distancesDevice[num_heads_];
+    for (int h = 0; h < num_heads_; ++h) {
+        distancesDevice[h] = toDeviceTemporary<float, 2>(
+            resources_.get(), 
+            config_.device, 
+            const_cast<float*>(centroid_dis) + h * query_per_head * use_nprobe,
+            stream, 
+            {query_per_head, use_nprobe});
+    }
 
-    // Simplification: Assume `assign` and `centroid_dis` are passed as single tensors,
-    // and `multiHeadBaseIndex_->searchPreassigned` can handle them, possibly by
-    // filtering relevant lists for each head.
-    // This part of the API mapping is complex.
+    DeviceTensor<idx_t, 2, true> assignDevice[num_heads_];
+    for (int h = 0; h < num_heads_; ++h) {
+        assignDevice[h] = toDeviceTemporary<idx_t, 2>(
+            resources_.get(), 
+            config_.device, 
+            const_cast<idx_t*>(assign) + h * query_per_head * use_nprobe,
+            stream, 
+            {query_per_head, use_nprobe});
+    }
 
-    // For now, let's assume the MultiHeadIVFBase::searchPreassigned expects
-    // per-head assignments if it takes std::vector<Tensor*>.
-    // If `assign` is global, it needs to be processed.
-    // This API is hard to map directly if MultiHeadIVFBase expects per-head assignments.
+    DeviceTensor<float, 2, true> outDistancesDevice[num_heads_];
+    for (int h = 0; h < num_heads_; ++h) {
+        outDistancesDevice[h] = toDeviceTemporary<float, 2>(
+            resources_.get(), 
+            config_.device, 
+            distances + h * query_per_head * k,
+            stream, 
+            {query_per_head, k});
+    }
+    Tensor<float, 2, true> outDistances[num_heads_];
+    for (int h = 0; h < num_heads_; ++h) {
+        outDistances[h] = Tensor<float, 2, true>(
+            outDistancesDevice[h].data(), 
+            {query_per_head, k});
+    }
 
-    // Let's assume `multiHeadBaseIndex_->searchPreassigned` is adapted to take global assignments
-    // or we only support this for a single effective head in this top-level API.
-    // Given the MultiHeadIVFBase.cuh signature for searchPreassigned:
-    // (..., const std::vector<Tensor<idx_t, 2, true>*>& ivfAssignmentsPerHead, ...)
-    // This means `assign` (global) needs to be split/filtered into per-head local assignments.
-    // This is non-trivial.
+    DeviceTensor<idx_t, 2, true> outLabelsDevice[num_heads_];
+    for (int h = 0; h < num_heads_; ++h) {
+        outLabelsDevice[h] = toDeviceTemporary<idx_t, 2>(
+            resources_.get(), 
+            config_.device, 
+            labels + h * query_per_head * k,
+            stream,
+            {query_per_head, k});
+    }
+    Tensor<idx_t, 2, true> outLabels[num_heads_];
+    for (int h = 0; h < num_heads_; ++h) {
+        outLabels[h] = Tensor<idx_t, 2, true>(
+            outLabelsDevice[h].data(), 
+            {query_per_head, k});
+    }
 
-    // --- TEMPORARY SIMPLIFICATION: This function is hard to map directly ---
-    // A full implementation would require logic to distribute global assignments to per-head
-    // local assignments, or MultiHeadIVFBase::searchPreassigned would need to take global assignments.
-    // For now, this will likely throw or be incorrect without further adaptation.
-    FAISS_THROW_MSG("GpuIndexMultiHeadIVF::search_preassigned with global assignments to per-head structure is complex and not fully implemented in this sketch.");
+    std::vector<int> ks(num_heads_, k);
+    multiHeadBaseIndex_->searchPreassigned(
+        const_cast<std::vector<Index*>&>(quantizers_), 
+        vecs, 
+        distancesDevice, 
+        assignDevice,
+        ks, 
+        outDistances, 
+        outLabels, 
+        store_pairs
+    );
 
-
-    // Placeholder for what would be needed if it were to proceed (highly conceptual):
-    // 1. Convert global `assign` list IDs to per-head local list IDs and filter.
-    // 2. Prepare per-head Tensors for `ivfAssignmentsPerHead` and `ivfDistancesPerHead`.
-    // 3. Call `multiHeadBaseIndex_->searchPreassigned`.
-    // 4. Merge results from `outDistancesPerHead` and `outLabelsPerHead`.
+    for (int h = 0; h < num_heads_; ++h){
+        fromDevice<float, 2>(outDistances[h], distances + h * query_per_head * k, stream);
+        fromDevice<idx_t, 2>(outLabels[h], labels + h * query_per_head * k, stream);
+    }
 }
 
 

@@ -239,9 +239,9 @@ void MultiHeadIVFFlat::search(
     
     // Allocate multi-head data structures
     // For coarse distances: one tensor per head
-    DeviceTensor<float, 2, true> coarseDistances[8];
-    DeviceTensor<idx_t, 2, true> coarseIndices[8];
-    DeviceTensor<float, 3, true> residualBase[8];
+    DeviceTensor<float, 2, true> coarseDistances[numHeads_];
+    DeviceTensor<idx_t, 2, true> coarseIndices[numHeads_];
+    DeviceTensor<float, 3, true> residualBase[numHeads_];
 
     for (int h = 0; h < numHeads_; ++h) {
         int adjustedNprobe = int(std::min(idx_t(nprobe[h]), nlists_[h]));
@@ -392,16 +392,33 @@ void MultiHeadIVFFlat::searchPreassigned(
     auto stream = resources_->getDefaultStreamCurrentDevice();
     DeviceTensor<float, 3, true> ivfCentroids[numHeads_];
     GpuIndex* gpuQuantizer[numHeads_];
-    
+
+    auto devIvfDistances = (DeviceTensor<float, 2, true>*)ivfDistances;
+    auto devIvfAssignments = (DeviceTensor<idx_t, 2, true>*)ivfAssignments;
+    auto devOutDistances = (DeviceTensor<float, 2, true>*)outDistances;
+    auto devOutIndices = (DeviceTensor<idx_t, 2, true>*)outIndices;
+
     // Process each head separately
     for (int h = 0; h < numHeads_; ++h) {
-        FAISS_ASSERT(ivfDistances[h].getSize(0) == vecs[h].getSize(0));
-        FAISS_ASSERT(ivfAssignments[h].getSize(0) == vecs[h].getSize(0));
-        FAISS_ASSERT(outDistances[h].getSize(0) == vecs[h].getSize(0));
-        FAISS_ASSERT(outIndices[h].getSize(0) == vecs[h].getSize(0));
+        // std::cerr << "Head " << h << ": " << std::endl;
+        // std::cerr << "ivfDistances size: " << devIvfDistances[h].getSize(0) << " x "
+        //           << devIvfDistances[h].getSize(1) << std::endl;
+        // std::cerr << "ivfAssignments size: " << devIvfAssignments[h].getSize(0) << " x "
+        //           << devIvfAssignments[h].getSize(1) << std::endl;
+        // std::cerr << "vecs size: " << vecs[h].getSize(0) << " x "
+        //           << vecs[h].getSize(1) << std::endl;
+        // std::cerr << "outDistances size: " << devOutDistances[h].getSize(0) << " x "
+        //           << devOutDistances[h].getSize(1) << std::endl;
+        // std::cerr << "outIndices size: " << devOutIndices[h].getSize(0) << " x "
+        //           << devOutIndices[h].getSize(1) << std::endl;
+
+        FAISS_ASSERT(devIvfDistances[h].getSize(0) == vecs[h].getSize(0));
+        FAISS_ASSERT(devIvfAssignments[h].getSize(0) == vecs[h].getSize(0));
+        FAISS_ASSERT(devOutDistances[h].getSize(0) == vecs[h].getSize(0));
+        FAISS_ASSERT(devOutIndices[h].getSize(0) == vecs[h].getSize(0));
         FAISS_ASSERT(vecs[h].getSize(1) == dim_);
 
-        auto nprobe = ivfAssignments[h].getSize(1);
+        auto nprobe = devIvfAssignments[h].getSize(1);
 
         ivfCentroids[h] = DeviceTensor<float, 3, true>(
                 resources_,
@@ -413,7 +430,7 @@ void MultiHeadIVFFlat::searchPreassigned(
             // We can pass device pointers directly
             gpuQuantizer[h]->reconstruct_batch(
                     vecs[h].getSize(0) * nprobe,
-                    ivfAssignments[h].data(),
+                    devIvfAssignments[h].data(),
                     ivfCentroids[h].data());
         } else {
             // CPU coarse quantizer
@@ -435,8 +452,8 @@ void MultiHeadIVFFlat::searchPreassigned(
 
     searchImpl_(
         vecs, 
-        ivfDistances, 
-        ivfAssignments, 
+        devIvfDistances, 
+        devIvfAssignments, 
         ivfCentroids, 
         k, 
         outDistances, 
