@@ -161,7 +161,7 @@ void GpuIndexMultiHeadIVF::verifyIVFSettings_() const {
     }
 }
 
-void GpuIndexMultiHeadIVF::copyFrom(const faiss::IndexIVF* indices) {
+void GpuIndexMultiHeadIVF::copyFrom(const faiss::IndexIVF* indices, bool coarseQuantizersOnDevice = true) {
     DeviceScope scope(config_.device);
     GpuIndex::copyFrom(indices); // Copies d, metric, ntotal, is_trained, verbose
 
@@ -200,25 +200,30 @@ void GpuIndexMultiHeadIVF::copyFrom(const faiss::IndexIVF* indices) {
             // Attempt to clone the index to GPU. If it fails because the coarse
             // quantizer is not implemented on GPU and the flag to allow CPU
             // fallback is set, retry it with CPU cloner and re-throw errors.
-            try {
-                GpuClonerOptions options;
-                auto cloner = ToGpuCloner(&pfi, getDevice(), options);
-                quantizers_[h] = cloner.clone_Index((indices + h)->quantizer);
-            } catch (const std::exception& e) {
-                if (strstr(e.what(), "not implemented on GPU")) {
-                    if (ivfConfig_.allowCpuCoarseQuantizer) {
-                        Cloner cpuCloner;
-                        quantizers_[h] = cpuCloner.clone_Index((indices + h)->quantizer);
+            if (coarseQuantizersOnDevice) {
+                try {
+                    GpuClonerOptions options;
+                    auto cloner = ToGpuCloner(&pfi, getDevice(), options);
+                    quantizers_[h] = cloner.clone_Index((indices + h)->quantizer);
+                } catch (const std::exception& e) {
+                    if (strstr(e.what(), "not implemented on GPU")) {
+                        if (ivfConfig_.allowCpuCoarseQuantizer) {
+                            Cloner cpuCloner;
+                            quantizers_[h] = cpuCloner.clone_Index((indices + h)->quantizer);
+                        } else {
+                            FAISS_THROW_MSG(
+                                    "This index type is not implemented on "
+                                    "GPU and allowCpuCoarseQuantizer is set to false. "
+                                    "Please set the flag to true to allow the CPU "
+                                    "fallback in cloning.");
+                        }
                     } else {
-                        FAISS_THROW_MSG(
-                                "This index type is not implemented on "
-                                "GPU and allowCpuCoarseQuantizer is set to false. "
-                                "Please set the flag to true to allow the CPU "
-                                "fallback in cloning.");
+                        throw;
                     }
-                } else {
-                    throw;
                 }
+            } else {
+                Cloner cpuCloner;
+                quantizers_[h] = cpuCloner.clone_Index((indices + h)->quantizer);
             }
             own_fields = true;
         } else {
