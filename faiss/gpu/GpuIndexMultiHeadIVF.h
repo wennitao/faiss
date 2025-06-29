@@ -55,7 +55,7 @@ class GpuIndexMultiHeadIVF : public GpuIndex, public IndexIVFInterface {
 
    public:
     // copyFrom/To for single IndexIVF - behavior needs careful definition (e.g., replicates or uses head 0)
-    void copyFrom(const faiss::IndexIVF* indices, bool coarseQuantizersOnDevice);
+    void copyFrom(const faiss::IndexIVF* indices, bool coarseQuantizersOnDevice = true);
     void copyTo(faiss::IndexIVF* index) const;
 
     // Updates the MultiHeadIVFBase with the current state of all coarse quantizers

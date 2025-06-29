@@ -86,6 +86,7 @@ class GpuIndexMultiHeadIVFFlat : public GpuIndexMultiHeadIVF {
     // Multi-head specific reconstruction
     virtual void reconstruct_n_for_head(int headId, idx_t i0, idx_t n, float* out) const;
 
+    bool coarseQuantizersOnDevice = true;
 
    protected:
     void setIndex_(

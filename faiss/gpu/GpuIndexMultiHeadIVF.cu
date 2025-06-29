@@ -161,7 +161,7 @@ void GpuIndexMultiHeadIVF::verifyIVFSettings_() const {
     }
 }
 
-void GpuIndexMultiHeadIVF::copyFrom(const faiss::IndexIVF* indices, bool coarseQuantizersOnDevice = true) {
+void GpuIndexMultiHeadIVF::copyFrom(const faiss::IndexIVF* indices, bool coarseQuantizersOnDevice) {
     DeviceScope scope(config_.device);
     GpuIndex::copyFrom(indices); // Copies d, metric, ntotal, is_trained, verbose
 
@@ -497,6 +497,7 @@ void GpuIndexMultiHeadIVF::search_quantizers(
         idx_t* labels,
         const SearchParameters* params) const {
     idx_t query_per_head = n / num_heads_;
+    // #pragma omp parallel for
     for (int h = 0; h < num_heads_; ++h) {
         quantizers_[h]->search(query_per_head, x + h * query_per_head * d, k, distances + h * query_per_head * k, labels + h * query_per_head * k, params);
     }

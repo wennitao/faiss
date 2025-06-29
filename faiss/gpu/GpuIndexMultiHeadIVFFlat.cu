@@ -186,7 +186,7 @@ size_t GpuIndexMultiHeadIVFFlat::getGpuVectorsIndexSize (const faiss::IndexIVFFl
 void GpuIndexMultiHeadIVFFlat::copyFromIndexOnly (const faiss::IndexIVFFlat* indices) {
     DeviceScope scope(config_.device);
 
-    GpuIndexMultiHeadIVF::copyFrom (indices) ;
+    GpuIndexMultiHeadIVF::copyFrom (indices, coarseQuantizersOnDevice) ;
 
     index_.reset();
 
