@@ -439,7 +439,7 @@ void MultiHeadIVFFlat::searchPreassigned(
     
             // We need to copy `ivfAssignments` to the CPU, in order to pass to a
             // CPU index
-            auto cpuIVFAssignments = ivfAssignments[h].copyToVector(stream);
+            auto cpuIVFAssignments = devIvfAssignments[h].copyToVector(stream);
     
             coarseQuantizers[h]->reconstruct_batch(
                     vecs[h].getSize(0) * nprobe,

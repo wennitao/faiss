@@ -101,18 +101,18 @@ MultiHeadIVFBase::MultiHeadIVFBase(
 }
 
 MultiHeadIVFBase::~MultiHeadIVFBase() {
-    if (isTranslatedCodesStored_) {
-        // std::cerr << "Freeing translated codes" << std::endl;
-        for (int h = 0; h < numHeads_; ++h) {
-            for (auto& ptr : translatedCodes_[h]) {
-                cudaFreeHost(ptr);
-            }
-        }
-    }
+    // if (isTranslatedCodesStored_) {
+    //     // std::cerr << "Freeing translated codes" << std::endl;
+    //     for (int h = 0; h < numHeads_; ++h) {
+    //         for (auto& ptr : translatedCodes_[h]) {
+    //             cudaFreeHost(ptr);
+    //         }
+    //     }
+    // }
 
     deviceListData_.clear();
     deviceListIndices_.clear();
-    translatedCodes_.clear();
+    // translatedCodes_.clear();
     listOffsetToUserIndex_.clear();
     
     delete[] ivfCentroids_;
@@ -153,24 +153,24 @@ void MultiHeadIVFBase::reserveMemory(idx_t numVecs) {
 void MultiHeadIVFBase::reset() {
     auto stream = resources_->getDefaultStreamCurrentDevice();
 
-    if (isTranslatedCodesStored_) {
-        for (int h = 0; h < numHeads_; ++h) {
-            for (auto& ptr : translatedCodes_[h]) {
-                cudaFreeHost(ptr);
-            }
-        }
-    }
+    // if (isTranslatedCodesStored_) {
+    //     for (int h = 0; h < numHeads_; ++h) {
+    //         for (auto& ptr : translatedCodes_[h]) {
+    //             cudaFreeHost(ptr);
+    //         }
+    //     }
+    // }
 
     deviceListData_.clear();
     deviceListIndices_.clear();
-    translatedCodes_.clear();
+    // translatedCodes_.clear();
     listOffsetToUserIndex_.clear();
 
     // Clear all head data
     for (int h = 0; h < numHeads_; ++h) {
         deviceListData_.emplace_back (std::vector<std::unique_ptr<DeviceIVFList>>());
         deviceListIndices_.emplace_back (std::vector<std::unique_ptr<DeviceIVFList>>());
-        translatedCodes_.emplace_back (std::vector<uint8_t*>());
+        // translatedCodes_.emplace_back (std::vector<uint8_t*>());
         listOffsetToUserIndex_.emplace_back (std::vector<std::vector<idx_t>>());
 
         auto info = AllocInfo(AllocType::IVFLists, getCurrentDevice(), space_, stream);
@@ -184,7 +184,7 @@ void MultiHeadIVFBase::reset() {
                     new DeviceIVFList(resources_, info)));
 
             listOffsetToUserIndex_[h].emplace_back(std::vector<idx_t>());
-            translatedCodes_[h].emplace_back(nullptr);
+            // translatedCodes_[h].emplace_back(nullptr);
         }
 
         deviceListDataPointers_[h].resize(nlists_[h], stream);
@@ -198,7 +198,15 @@ void MultiHeadIVFBase::reset() {
     }
 
     maxListLength_ = 0;
-    isTranslatedCodesStored_ = false;
+    // isTranslatedCodesStored_ = false;
+}
+
+void MultiHeadIVFBase::initTranslatedCodes (
+    std::vector<std::vector<uint8_t*>>& translatedCodes) {
+    translatedCodes.resize(numHeads_);
+    for (int h = 0; h < numHeads_; ++h) {
+        translatedCodes[h].resize(nlists_[h], nullptr);
+    }
 }
 
 idx_t MultiHeadIVFBase::getDim() const {
@@ -417,12 +425,12 @@ void MultiHeadIVFBase::copyInvertedListsFrom(const std::vector<InvertedLists*>& 
         idx_t nlist = ivf->nlist;
         for (idx_t i = 0; i < nlist && i < nlists_[h]; ++i) {
             addEncodedVectorsToList_(
-                    h, i, ivf->get_codes(i), ivf->get_ids(i), ivf->list_size(i));
+                    h, i, ivf->get_codes(i), ivf->get_ids(i), nullptr, ivf->list_size(i));
         }
     }
 }
 
-void MultiHeadIVFBase::storeTranslatedCodes(const std::vector<InvertedLists*>& ivfs) {
+void MultiHeadIVFBase::storeTranslatedCodes(const std::vector<InvertedLists*>& ivfs, std::vector<std::vector<uint8_t*>>& translatedCodes_) {
     for (int h = 0; h < numHeads_; ++h) {
         const InvertedLists* ivf = ivfs[h];
         if (!ivf) continue;
@@ -460,7 +468,7 @@ void MultiHeadIVFBase::storeTranslatedCodes(const std::vector<InvertedLists*>& i
             }
         }
     }
-    isTranslatedCodesStored_ = true;
+    // isTranslatedCodesStored_ = true;
 }
 
 std::vector<size_t> MultiHeadIVFBase::getInvertedListsDataMemory(const std::vector<InvertedLists*>& ivfs) const {
@@ -523,12 +531,13 @@ void MultiHeadIVFBase::reserveInvertedListsIndexMemory(const std::vector<Inverte
 
 void MultiHeadIVFBase::copyInvertedListsFromNoRealloc(
         const std::vector<InvertedLists*>& ivfs, 
+        std::vector<std::vector<uint8_t*>>& translatedCodes_,
         GpuMemoryReservation* ivfListDataReservation, 
         GpuMemoryReservation* ivfListIndexReservation) {
     
-    if (!isTranslatedCodesStored_) {
-        storeTranslatedCodes(ivfs);
-    }
+    // if (!isTranslatedCodesStored_) {
+    //     storeTranslatedCodes(ivfs);
+    // }
 
     size_t offsetData = 0;
     size_t offsetIndex = 0;
@@ -553,7 +562,7 @@ void MultiHeadIVFBase::copyInvertedListsFromNoRealloc(
             offsetIndex += curIndexSize;
 
             addEncodedVectorsToList_(
-                    h, i, ivf->get_codes(i), ivf->get_ids(i), ivf->list_size(i));
+                    h, i, ivf->get_codes(i), ivf->get_ids(i), translatedCodes_[h][i], ivf->list_size(i));
         }
     }
 }
@@ -584,6 +593,7 @@ void MultiHeadIVFBase::addEncodedVectorsToList_(
         idx_t listId,
         const void* codes,
         const idx_t* indices,
+        uint8_t* translatedCodes,
         idx_t numVecs) {
     auto stream = resources_->getDefaultStreamCurrentDevice();
 
@@ -605,9 +615,9 @@ void MultiHeadIVFBase::addEncodedVectorsToList_(
     auto gpuListSizeInBytes = getGpuVectorsEncodingSize_(numVecs);
     auto cpuListSizeInBytes = getCpuVectorsEncodingSize_(numVecs);
 
-    if (isTranslatedCodesStored_) {
+    if (translatedCodes) {
         listCodes->data.append(
-            translatedCodes_[headId][listId],
+            translatedCodes,
             gpuListSizeInBytes,
             stream,
             true /* exact reserved size */);
