@@ -567,6 +567,40 @@ void MultiHeadIVFBase::copyInvertedListsFromNoRealloc(
     }
 }
 
+void MultiHeadIVFBase::copyInvertedListsFromNoRealloc(
+        const std::vector<InvertedLists*>& ivfs, 
+        std::vector<std::vector<idx_t>>& nlistIds, 
+        std::vector<std::vector<uint8_t*>>& translatedCodes_,
+        GpuMemoryReservation* ivfListDataReservation, 
+        GpuMemoryReservation* ivfListIndexReservation) {
+    
+    size_t offsetData = 0;
+    size_t offsetIndex = 0;
+
+    for (int h = 0; h < numHeads_; ++h) {
+        const InvertedLists* ivf = ivfs[h];
+        if (!ivf) continue;
+        
+        for (idx_t i : nlistIds[h]) {
+            size_t curDataSize = getGpuVectorsEncodingSize_(ivf->list_size(i));
+            size_t curIndexSize = ivf->list_size(i) * sizeof(idx_t);
+
+            auto& listCodes = deviceListData_[h][i];
+            listCodes->data.assignReservedMemoryPointer(
+                    (uint8_t*)ivfListDataReservation->get() + offsetData, curDataSize);
+            offsetData += curDataSize;
+
+            auto& listIndices = deviceListIndices_[h][i];
+            listIndices->data.assignReservedMemoryPointer(
+                    (uint8_t*)ivfListIndexReservation->get() + offsetIndex, curIndexSize);
+            offsetIndex += curIndexSize;
+
+            addEncodedVectorsToList_(
+                    h, i, ivf->get_codes(i), ivf->get_ids(i), translatedCodes_[h][i], ivf->list_size(i));
+        }
+    }
+}
+
 void MultiHeadIVFBase::copyInvertedListsTo(std::vector<InvertedLists*>& ivfs) {
     FAISS_THROW_IF_NOT(ivfs.size() == numHeads_);
     

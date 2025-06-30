@@ -438,6 +438,27 @@ void GpuIndexMultiHeadIVFFlat::copyInvertedLists(
                                              ivfListIndexReservation);
 }
 
+void GpuIndexMultiHeadIVFFlat::copyInvertedLists(
+        const faiss::IndexIVFFlat* indices,
+        std::vector<std::vector<uint8_t*>>& translatedCodes,
+        std::vector<std::vector<idx_t>>& nlistIds, 
+        GpuMemoryReservation* ivfListDataReservation,
+        GpuMemoryReservation* ivfListIndexReservation) {
+    std::vector<InvertedLists*> ivfLists(num_heads_);
+    for (int h = 0; h < num_heads_; ++h) {
+        if (indices && indices[h].invlists) {
+            ivfLists[h] = indices[h].invlists;
+        } else {
+            ivfLists[h] = nullptr; // No lists for this head
+        }
+    }
+    index_ -> copyInvertedListsFromNoRealloc(ivfLists, 
+                                            nlistIds,
+                                            translatedCodes, 
+                                            ivfListDataReservation,
+                                            ivfListIndexReservation);
+}
+
 
 } // namespace gpu
 } // namespace faiss

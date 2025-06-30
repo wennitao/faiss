@@ -87,6 +87,7 @@ public:
 
     /// Copy all inverted lists from a CPU representation to ourselves without realloc
     virtual void copyInvertedListsFromNoRealloc(const std::vector<InvertedLists*>& ivf, std::vector<std::vector<uint8_t*>>& translatedCodes_, GpuMemoryReservation* ivfListDataReservation, GpuMemoryReservation* ivfListIndexReservation);
+    virtual void copyInvertedListsFromNoRealloc(const std::vector<InvertedLists*>& ivf, std::vector<std::vector<idx_t>>& nlistIds, std::vector<std::vector<uint8_t*>>& translatedCodes_, GpuMemoryReservation* ivfListDataReservation, GpuMemoryReservation* ivfListIndexReservation);
 
     /// Copy all inverted lists from ourselves to a CPU representation
     virtual void copyInvertedListsTo(std::vector<InvertedLists*>& ivf);
