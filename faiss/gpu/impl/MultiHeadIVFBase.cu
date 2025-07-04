@@ -896,8 +896,10 @@ void MultiHeadIVFBase::searchCoarseQuantizer_(
                     nprobe[h],
                     cpuDistances.data(),
                     cpuIndices.data());
-
-            distances[h].copyFrom(cpuDistances, stream);
+            
+            auto deviceDistances = (DeviceTensor<float, 2, true>*)distances;
+            auto deviceIndices = (DeviceTensor<idx_t, 2, true>*)indices;
+            deviceDistances[h].copyFrom(cpuDistances, stream);
 
             // Did we also want to return IVF cell residuals for the query vectors?
             if (residuals) {
@@ -910,7 +912,8 @@ void MultiHeadIVFBase::searchCoarseQuantizer_(
                         cpuResiduals.data(),
                         cpuIndices.data());
 
-                residuals[h].copyFrom(cpuResiduals, stream);
+                auto deviceResiduals = (DeviceTensor<float, 3, true>*)residuals;
+                deviceResiduals[h].copyFrom(cpuResiduals, stream);
             }
 
             // Did we also want to return the IVF cell centroids themselves?
@@ -923,10 +926,11 @@ void MultiHeadIVFBase::searchCoarseQuantizer_(
                         cpuIndices.data(),
                         cpuCentroids.data());
 
-                centroids[h].copyFrom(cpuCentroids, stream);
+                auto deviceCentroids = (DeviceTensor<float, 3, true>*)centroids;
+                deviceCentroids[h].copyFrom(cpuCentroids, stream);
             }
 
-            indices[h].copyFrom(cpuIndices, stream);
+            deviceIndices[h].copyFrom(cpuIndices, stream);
         }
     }
 }
