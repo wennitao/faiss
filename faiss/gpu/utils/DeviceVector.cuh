@@ -272,14 +272,15 @@ class DeviceVector {
     }
 
     void assignReservedMemoryPointer (void *p, size_t newCapacity) {
-        if (newCapacity <= capacity_) {
-            #ifdef FAISS_DEBUG
-            printf ("DeviceVector::assignReservedMemory: no reallocation needed\n");
-            #endif
-            return;
-        }
+        // if (newCapacity <= capacity_) {
+        //     #ifdef FAISS_DEBUG
+        //     printf ("DeviceVector::assignReservedMemory: no reallocation needed\n");
+        //     #endif
+        //     return;
+        // }
         data_ = p;
         capacity_ = newCapacity;
+        num_ = 0;
         useOwnGpuMemoryReservation_ = false;
     }
 

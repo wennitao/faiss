@@ -552,11 +552,14 @@ void MultiHeadIVFBase::copyInvertedListsFromNoRealloc(
             size_t curIndexSize = ivf->list_size(i) * sizeof(idx_t);
 
             auto& listCodes = deviceListData_[h][i];
+            listCodes->numVecs = 0;
+            // std::cerr << "listCodes head " << h << " list " << i << " numVecs: " << listCodes->numVecs << std::endl;
             listCodes->data.assignReservedMemoryPointer(
                     (uint8_t*)ivfListDataReservation->get() + offsetData, curDataSize);
             offsetData += curDataSize;
 
             auto& listIndices = deviceListIndices_[h][i];
+            listIndices->numVecs = 0;
             listIndices->data.assignReservedMemoryPointer(
                     (uint8_t*)ivfListIndexReservation->get() + offsetIndex, curIndexSize);
             offsetIndex += curIndexSize;
@@ -586,11 +589,13 @@ void MultiHeadIVFBase::copyInvertedListsFromNoRealloc(
             size_t curIndexSize = ivf->list_size(i) * sizeof(idx_t);
 
             auto& listCodes = deviceListData_[h][i];
+            listCodes->numVecs = 0;
             listCodes->data.assignReservedMemoryPointer(
                     (uint8_t*)ivfListDataReservation->get() + offsetData, curDataSize);
             offsetData += curDataSize;
 
             auto& listIndices = deviceListIndices_[h][i];
+            listIndices->numVecs = 0;
             listIndices->data.assignReservedMemoryPointer(
                     (uint8_t*)ivfListIndexReservation->get() + offsetIndex, curIndexSize);
             offsetIndex += curIndexSize;
@@ -637,7 +642,9 @@ void MultiHeadIVFBase::addEncodedVectorsToList_(
 
     // This list must currently be empty
     auto& listCodes = deviceListData_[headId][listId];
+    // std::cerr << listCodes->data.size() << std::endl;
     FAISS_ASSERT(listCodes->data.size() == 0);
+    // std::cerr << "listCodes head " << headId << " list " << listId << " numVecs: " << listCodes->numVecs << std::endl;
     FAISS_ASSERT(listCodes->numVecs == 0);
 
     // If there's nothing to add, then there's nothing we have to do
