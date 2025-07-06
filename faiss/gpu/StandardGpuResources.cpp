@@ -99,9 +99,10 @@ StandardGpuResourcesImpl::StandardGpuResourcesImpl()
           pinnedMemAllocSize_(0),
           // let the adjustment function determine the memory size for us by
           // passing in a huge value that will then be adjusted
-          tempMemSize_(getDefaultTempMemForGPU(
-                  -1,
-                  std::numeric_limits<size_t>::max())),
+        //   tempMemSize_(getDefaultTempMemForGPU(
+        //           -1,
+        //           std::numeric_limits<size_t>::max())),
+          tempMemSize_(getDefaultTempMemForGPU(-1, 0)),
           pinnedMemSize_(kDefaultPinnedMemoryAllocation),
           allocLogging_(false) {
 }
