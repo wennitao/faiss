@@ -634,7 +634,8 @@ void MultiHeadIVFBase::addEncodedVectorsToList_(
         const idx_t* indices,
         uint8_t* translatedCodes,
         idx_t numVecs) {
-    auto stream = resources_->getDefaultStreamCurrentDevice();
+    // auto stream = resources_->getDefaultStreamCurrentDevice();
+    auto stream = resources_->getAsyncCopyStreamCurrentDevice();
 
     // This list must already exist
     FAISS_ASSERT(headId < numHeads_);

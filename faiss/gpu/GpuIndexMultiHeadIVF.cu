@@ -221,11 +221,15 @@ void GpuIndexMultiHeadIVF::copyFrom(const faiss::IndexIVF* indices, bool coarseQ
                         throw;
                     }
                 }
+                own_fields = true;
+                own_coarse_quantizers_ = true;
             } else {
-                Cloner cpuCloner;
-                quantizers_[h] = cpuCloner.clone_Index((indices + h)->quantizer);
+                // Cloner cpuCloner;
+                // quantizers_[h] = cpuCloner.clone_Index((indices + h)->quantizer);
+                quantizers_[h] = (indices + h)->quantizer;
+                own_fields = false;
+                own_coarse_quantizers_ = false;
             }
-            own_fields = true;
         } else {
             // Otherwise, this is a GPU coarse quantizer index instance found in a
             // CPU instance. It is unclear what we should do here, but for now we'll
