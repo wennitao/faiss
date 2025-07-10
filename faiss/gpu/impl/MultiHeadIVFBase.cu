@@ -529,6 +529,7 @@ void MultiHeadIVFBase::reserveInvertedListsIndexMemory(const std::vector<Inverte
     }
 }
 
+// TODO: change copyInvertedLists to copy all ivf data at once (call cudaMemcpy once for all lists)
 void MultiHeadIVFBase::copyInvertedListsFromNoRealloc(
         const std::vector<InvertedLists*>& ivfs, 
         std::vector<std::vector<uint8_t*>>& translatedCodes_,
@@ -542,6 +543,7 @@ void MultiHeadIVFBase::copyInvertedListsFromNoRealloc(
     size_t offsetData = 0;
     size_t offsetIndex = 0;
     
+    #pragma omp parallel for
     for (int h = 0; h < numHeads_; ++h) {
         const InvertedLists* ivf = ivfs[h];
         if (!ivf) continue;
@@ -580,11 +582,13 @@ void MultiHeadIVFBase::copyInvertedListsFromNoRealloc(
     size_t offsetData = 0;
     size_t offsetIndex = 0;
 
+    #pragma omp parallel for
     for (int h = 0; h < numHeads_; ++h) {
         const InvertedLists* ivf = ivfs[h];
         if (!ivf) continue;
         
-        for (idx_t i : nlistIds[h]) {
+        for (int idx = 0; idx < nlistIds[h].size(); ++idx) {
+            idx_t i = nlistIds[h][idx];
             size_t curDataSize = getGpuVectorsEncodingSize_(ivf->list_size(i));
             size_t curIndexSize = ivf->list_size(i) * sizeof(idx_t);
 
