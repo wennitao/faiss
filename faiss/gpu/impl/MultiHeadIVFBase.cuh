@@ -49,6 +49,7 @@ public:
     virtual void reset();
 
     virtual void initTranslatedCodes(std::vector<std::vector<uint8_t*>>& translatedCodes);
+    virtual void initIvfIndices(std::vector<std::vector<uint8_t*>>& ivfIndices);
 
     /// Return the number of dimensions we are indexing
     idx_t getDim() const;
@@ -78,6 +79,8 @@ public:
 
     virtual void storeTranslatedCodes(const std::vector<InvertedLists*>& ivf, 
                                       std::vector<std::vector<uint8_t*>>& translatedCodes_);
+    virtual void storeIndices(const std::vector<InvertedLists*>& ivfs, 
+                                std::vector<std::vector<uint8_t*>>& ivfIndices);
 
     virtual std::vector<size_t> getInvertedListsDataMemory(const std::vector<InvertedLists*>& ivf) const ;
     virtual std::vector<size_t> getInvertedListsIndexMemory(const std::vector<InvertedLists*>& ivf) const;
@@ -86,8 +89,16 @@ public:
     virtual void reserveInvertedListsIndexMemory(const std::vector<InvertedLists*>& ivf);
 
     /// Copy all inverted lists from a CPU representation to ourselves without realloc
-    virtual void copyInvertedListsFromNoRealloc(const std::vector<InvertedLists*>& ivf, std::vector<std::vector<uint8_t*>>& translatedCodes_, GpuMemoryReservation* ivfListDataReservation, GpuMemoryReservation* ivfListIndexReservation);
-    virtual void copyInvertedListsFromNoRealloc(const std::vector<InvertedLists*>& ivf, std::vector<std::vector<idx_t>>& nlistIds, std::vector<std::vector<uint8_t*>>& translatedCodes_, GpuMemoryReservation* ivfListDataReservation, GpuMemoryReservation* ivfListIndexReservation);
+    virtual void copyInvertedListsFromNoRealloc(const std::vector<InvertedLists*>& ivf, 
+                                                std::vector<std::vector<uint8_t*>>& translatedCodes_, 
+                                                std::vector<std::vector<uint8_t*>>& ivfIndices,
+                                                GpuMemoryReservation* ivfListDataReservation, 
+                                                GpuMemoryReservation* ivfListIndexReservation);
+    virtual void copyInvertedListsFromNoRealloc(const std::vector<InvertedLists*>& ivf, 
+                                                std::vector<std::vector<idx_t>>& nlistIds, 
+                                                std::vector<std::vector<uint8_t*>>& translatedCodes_, 
+                                                GpuMemoryReservation* ivfListDataReservation, 
+                                                GpuMemoryReservation* ivfListIndexReservation);
 
     /// Copy all inverted lists from ourselves to a CPU representation
     virtual void copyInvertedListsTo(std::vector<InvertedLists*>& ivf);

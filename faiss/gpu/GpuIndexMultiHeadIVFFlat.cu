@@ -414,14 +414,32 @@ void GpuIndexMultiHeadIVFFlat::translateCodesToGpu(const faiss::IndexIVFFlat* in
     index_ -> storeTranslatedCodes(ivfLists, translatedCodes);
 }
 
+void GpuIndexMultiHeadIVFFlat::storeIndices(const faiss::IndexIVFFlat* indices, std::vector<std::vector<uint8_t*>>& ivfIndices) {
+    std::vector<InvertedLists*> ivfLists(num_heads_);
+    for (int h = 0; h < num_heads_; ++h) {
+        if (indices && indices[h].invlists) {
+            ivfLists[h] = indices[h].invlists;
+        } else {
+            ivfLists[h] = nullptr; // No lists for this head
+        }
+    }
+    index_ -> storeIndices(ivfLists, ivfIndices);
+}
+
 void GpuIndexMultiHeadIVFFlat::initTranslatedCodes(
     std::vector<std::vector<uint8_t*>>& translatedCodes) {
     index_ -> initTranslatedCodes(translatedCodes);
 }
 
+void GpuIndexMultiHeadIVFFlat::initIvfIndices(
+    std::vector<std::vector<uint8_t*>>& ivfIndices) {
+    index_ -> initIvfIndices(ivfIndices);
+}
+
 void GpuIndexMultiHeadIVFFlat::copyInvertedLists(
         const faiss::IndexIVFFlat* indices,
         std::vector<std::vector<uint8_t*>>& translatedCodes,
+        std::vector<std::vector<uint8_t*>>& ivfIndices, 
         GpuMemoryReservation* ivfListDataReservation,
         GpuMemoryReservation* ivfListIndexReservation) {
     std::vector<InvertedLists*> ivfLists(num_heads_);
@@ -434,6 +452,7 @@ void GpuIndexMultiHeadIVFFlat::copyInvertedLists(
     }
     index_ -> copyInvertedListsFromNoRealloc(ivfLists, 
                                              translatedCodes, 
+                                             ivfIndices,
                                              ivfListDataReservation,
                                              ivfListIndexReservation);
 }
