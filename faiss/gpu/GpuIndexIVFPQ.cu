@@ -8,6 +8,7 @@
 #include <faiss/IndexFlat.h>
 #include <faiss/IndexIVFPQ.h>
 #include <faiss/gpu/GpuIndexFlat.h>
+#include <faiss/gpu/GpuIndexIVF.h>
 #include <faiss/gpu/GpuIndexIVFPQ.h>
 #include <faiss/gpu/GpuResources.h>
 #include <faiss/gpu/utils/DeviceUtils.h>
@@ -101,6 +102,92 @@ GpuIndexIVFPQ::GpuIndexIVFPQ(
 }
 
 GpuIndexIVFPQ::~GpuIndexIVFPQ() {}
+
+size_t GpuIndexIVFPQ::getGpuVectorsEncodingSize(const faiss::IndexIVFPQ* index) const {
+    return index_ -> getInvertedListsDataMemory(index->invlists);
+}
+
+size_t GpuIndexIVFPQ::getGpuVectorsIndexSize(const faiss::IndexIVFPQ* index) const {
+    return index_ -> getInvertedListsIndexMemory(index->invlists);
+}
+
+void GpuIndexIVFPQ::copyFromIndexOnly(const faiss::IndexIVFPQ* index) {
+    DeviceScope scope(config_.device);
+
+    // This will copy GpuIndexIVF data such as the coarse quantizer
+    GpuIndexIVF::copyFrom(index);
+
+    // Clear out our old data
+    index_.reset();
+
+    // skip base class allocations if cuVS is enabled
+    if (!should_use_cuvs(config_)) {
+        baseIndex_.reset();
+    }
+
+    pq = index->pq;
+    subQuantizers_ = index->pq.M;
+    bitsPerCode_ = index->pq.nbits;
+
+    // We only support this
+    FAISS_THROW_IF_NOT_MSG(
+            ivfpqConfig_.interleavedLayout || index->pq.nbits == 8,
+            "GPU: only pq.nbits == 8 is supported");
+    FAISS_THROW_IF_NOT_MSG(
+            index->by_residual, "GPU: only by_residual = true is supported");
+    FAISS_THROW_IF_NOT_MSG(
+            index->polysemous_ht == 0, "GPU: polysemous codes not supported");
+
+    verifyPQSettings_();
+
+    // The other index might not be trained
+    if (!index->is_trained) {
+        // copied in GpuIndex::copyFrom
+        FAISS_ASSERT(!is_trained);
+        return;
+    }
+
+    // Copy our lists as well
+    // The product quantizer must have data in it
+    FAISS_ASSERT(index->pq.centroids.size() > 0);
+    setIndex_(
+            resources_.get(),
+            this->d,
+            this->nlist,
+            index->metric_type,
+            index->metric_arg,
+            subQuantizers_,
+            bitsPerCode_,
+            ivfpqConfig_.useFloat16LookupTables,
+            ivfpqConfig_.useMMCodeDistance,
+            ivfpqConfig_.interleavedLayout,
+            (float*)index->pq.centroids.data(),
+            ivfpqConfig_.indicesOptions,
+            config_.memorySpace);
+    baseIndex_ = std::static_pointer_cast<IVFBase, IVFPQ>(index_);
+
+    // Doesn't make sense to reserve memory here
+    FAISS_ASSERT(quantizer);
+    updateQuantizer();
+
+    index_->setPrecomputedCodes(quantizer, usePrecomputedTables_);
+}
+
+void GpuIndexIVFPQ::initTranslatedCodes(std::vector<uint8_t*>& translatedCodes) {
+    index_ -> initTranslatedCodes(translatedCodes);
+}
+
+void GpuIndexIVFPQ::translateCodesToGpu (const faiss::IndexIVFPQ* index, std::vector<uint8_t*>& translatedCodes) {
+    index_ -> storeTranslatedCodes(index->invlists, translatedCodes);
+}
+
+void GpuIndexIVFPQ::copyInvertedLists(
+        const faiss::IndexIVFPQ* index,
+        std::vector<uint8_t*>& translatedCodes,
+        GpuMemoryReservation* ivfListDataReservation,
+        GpuMemoryReservation* ivfListIndexReservation) {
+    index_ -> copyInvertedListsFromNoRealloc(index->invlists, translatedCodes, ivfListDataReservation, ivfListIndexReservation);
+}
 
 void GpuIndexIVFPQ::copyFrom(const faiss::IndexIVFPQ* index) {
     DeviceScope scope(config_.device);

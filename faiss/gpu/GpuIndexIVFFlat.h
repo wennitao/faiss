@@ -67,8 +67,8 @@ class GpuIndexIVFFlat : public GpuIndexIVF {
     size_t getGpuVectorsIndexSize (const faiss::IndexIVFFlat* index) const ;
 
     void copyFromIndexOnly (const faiss::IndexIVFFlat* index);
-    void translateCodesToGpu(const faiss::IndexIVFFlat* index);
-    void copyInvertedLists (const faiss::IndexIVFFlat* index, GpuMemoryReservation* ivfListDataReservation, GpuMemoryReservation* ivfListIndexReservation);
+    void translateCodesToGpu(const faiss::IndexIVFFlat* index, std::vector<uint8_t*>& translatedCodes);
+    void copyInvertedLists (const faiss::IndexIVFFlat* index, std::vector<uint8_t*>& translatedCodes, GpuMemoryReservation* ivfListDataReservation, GpuMemoryReservation* ivfListIndexReservation);
 
     /// Initialize ourselves from the given CPU index; will overwrite
     /// all data in ourselves

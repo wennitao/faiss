@@ -86,6 +86,25 @@ class GpuIndexIVFPQ : public GpuIndexIVF {
     /// Reserve space on the GPU for the inverted lists for `num`
     /// vectors, assumed equally distributed among
 
+    size_t getGpuVectorsEncodingSize(const faiss::IndexIVFPQ* index) const;
+    size_t getGpuVectorsIndexSize(const faiss::IndexIVFPQ* index) const;
+
+    void copyFromIndexOnly(const faiss::IndexIVFPQ* index);
+    void initTranslatedCodes(std::vector<uint8_t*>& translatedCodes);
+    void translateCodesToGpu (const faiss::IndexIVFPQ* index, 
+        std::vector<uint8_t*>& translatedCodes);
+    void copyInvertedLists(
+        const faiss::IndexIVFPQ* index,
+        std::vector<uint8_t*>& translatedCodes,
+        GpuMemoryReservation* ivfListDataReservation,
+        GpuMemoryReservation* ivfListIndexReservation);
+    void copyInvertedLists(
+        const faiss::IndexIVFPQ* index,
+        std::vector<uint8_t*>& translatedCodes,
+        std::vector<idx_t>& nlistIds, 
+        GpuMemoryReservation* ivfListDataReservation,
+        GpuMemoryReservation* ivfListIndexReservation);
+
     /// Initialize ourselves from the given CPU index; will overwrite
     /// all data in ourselves
     void copyFrom(const faiss::IndexIVFPQ* index);

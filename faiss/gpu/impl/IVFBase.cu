@@ -5,6 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <faiss/MetricType.h>
 #include <faiss/gpu/GpuIndex.h>
 #include <faiss/gpu/GpuIndexFlat.h>
 #include <faiss/gpu/GpuResources.h>
@@ -76,13 +77,13 @@ IVFBase::IVFBase(
 }
 
 IVFBase::~IVFBase() {
-    if (isTranslatedCodesStored_) {
-        for (auto& ptr : translatedCodes_) {
-            if (ptr) {
-                cudaFreeHost(ptr);
-            }
-        }
-    }
+    // if (isTranslatedCodesStored_) {
+    //     for (auto& ptr : translatedCodes_) {
+    //         if (ptr) {
+    //             cudaFreeHost(ptr);
+    //         }
+    //     }
+    // }
 }
 
 void IVFBase::reserveMemory(idx_t numVecs) {
@@ -119,15 +120,15 @@ void IVFBase::reserveMemory(idx_t numVecs) {
 void IVFBase::reset() {
     auto stream = resources_->getDefaultStreamCurrentDevice();
 
-    if (isTranslatedCodesStored_) {
-        for (auto& ptr : translatedCodes_) {
-            cudaFreeHost(ptr);
-        }
-    }
+    // if (isTranslatedCodesStored_) {
+    //     for (auto& ptr : translatedCodes_) {
+    //         cudaFreeHost(ptr);
+    //     }
+    // }
 
     deviceListData_.clear();
     deviceListIndices_.clear();
-    translatedCodes_.clear();
+    // translatedCodes_.clear();
     deviceListDataPointers_.clear();
     deviceListIndexPointers_.clear();
     deviceListLengths_.clear();
@@ -145,7 +146,7 @@ void IVFBase::reset() {
 
         listOffsetToUserIndex_.emplace_back(std::vector<idx_t>());
 
-        translatedCodes_.emplace_back(nullptr);
+        // translatedCodes_.emplace_back(nullptr);
     }
 
     deviceListDataPointers_.resize(numLists_, stream);
@@ -158,7 +159,7 @@ void IVFBase::reset() {
     deviceListLengths_.setAll(0, stream);
 
     maxListLength_ = 0;
-    isTranslatedCodesStored_ = false;
+    // isTranslatedCodesStored_ = false;
 }
 
 idx_t IVFBase::getDim() const {
@@ -347,7 +348,7 @@ void IVFBase::copyInvertedListsFrom(const InvertedLists* ivf) {
     idx_t nlist = ivf ? ivf->nlist : 0;
     for (idx_t i = 0; i < nlist; ++i) {
         addEncodedVectorsToList_(
-                i, ivf->get_codes(i), ivf->get_ids(i), ivf->list_size(i));
+                i, ivf->get_codes(i), ivf->get_ids(i), nullptr, ivf->list_size(i));
     }
 }
 
@@ -382,8 +383,25 @@ void IVFBase::reserveInvertedListsIndexMemory(const InvertedLists* ivf) {
     // printf ("ivfListIndexReservation_ size: %zu\n", ivfListIndexReservation_.size);
 }
 
-void IVFBase::storeTranslatedCodes(const InvertedLists* ivf) {
+void IVFBase::initTranslatedCodes(std::vector<uint8_t*>& translatedCodes) {
+    translatedCodes.resize(numLists_, nullptr);
+}
+
+void IVFBase::storeTranslatedCodes(const InvertedLists* ivf, std::vector<uint8_t*>& translatedCodes_) {
     idx_t nlist = ivf ? ivf->nlist : 0;
+    size_t total_size = 0;
+    for (idx_t i = 0; i < nlist; ++i) {
+        total_size += getGpuVectorsEncodingSize_(ivf->list_size(i));
+    }
+
+    uint8_t* ptr;
+    cudaError_t err = cudaMallocHost(
+            (void**)&ptr, total_size, cudaHostAllocPortable);
+    if (err != cudaSuccess) {
+        std::cerr << "cudaMallocHost " << cudaGetErrorString(err) << std::endl;
+    }
+    
+    size_t offset = 0;
     for (idx_t i = 0; i < nlist; ++i) {
         auto codes = ivf->get_codes(i);
         auto numVecs = ivf->list_size(i);
@@ -396,14 +414,17 @@ void IVFBase::storeTranslatedCodes(const InvertedLists* ivf) {
         std::memcpy(codesV.data(), codes, cpuListSizeInBytes);
         std::vector<uint8_t> translatedCodes = translateCodesToGpu_(std::move(codesV), numVecs);
 
-        cudaError_t err = cudaMallocHost (
-                (void**)&translatedCodes_[i],
-                gpuListSizeInBytes, 
-                cudaHostAllocPortable);
-        if (err != cudaSuccess) {
-            std::cout << "cudaMallocHost " << cudaGetErrorString(err) << std::endl;
-        }
+        // cudaError_t err = cudaMallocHost (
+        //         (void**)&translatedCodes_[i],
+        //         gpuListSizeInBytes, 
+        //         cudaHostAllocPortable);
+        // if (err != cudaSuccess) {
+        //     std::cout << "cudaMallocHost " << cudaGetErrorString(err) << std::endl;
+        // }
         // copy translated codes to pinned memory
+
+        translatedCodes_[i] = ptr + offset;
+
         err = cudaMemcpy(
                 translatedCodes_[i],
                 translatedCodes.data(),
@@ -412,25 +433,31 @@ void IVFBase::storeTranslatedCodes(const InvertedLists* ivf) {
         if (err != cudaSuccess) {
             std::cout << "cudaMemcpy " << cudaGetErrorString(err) << std::endl;
         }
+
+        offset += gpuListSizeInBytes;
         // std::cout << translatedCodes[0] << " " << translatedCodes_[i][0] << std::endl;
     }
-    isTranslatedCodesStored_ = true;
+    // isTranslatedCodesStored_ = true;
 }
 
-void IVFBase::copyInvertedListsFromNoRealloc(const InvertedLists* ivf, GpuMemoryReservation* ivfListDataReservation, GpuMemoryReservation* ivfListIndexReservation) {
+void IVFBase::copyInvertedListsFromNoRealloc(const InvertedLists* ivf, std::vector<uint8_t*>& translatedCodes_, GpuMemoryReservation* ivfListDataReservation, GpuMemoryReservation* ivfListIndexReservation) {
     idx_t nlist = ivf ? ivf->nlist : 0;
     if (nlist == 0) {
         return;
     }
+    
     // reserveInvertedListsDataMemory(ivf);
     // reserveInvertedListsIndexMemory(ivf);
 
-    if (!isTranslatedCodesStored_) {
-        storeTranslatedCodes(ivf);
-    }
+    // if (!isTranslatedCodesStored_) {
+    //     storeTranslatedCodes(ivf);
+    // }
 
+    size_t codeTotalSize = 0;
     size_t offsetData = 0;
     size_t offsetIndex = 0;
+
+    auto stream = resources_->getAsyncCopyStreamCurrentDevice();
     
     for (idx_t i = 0; i < nlist; ++i) {
         size_t curDataSize = getGpuVectorsEncodingSize_(ivf->list_size(i));
@@ -440,13 +467,185 @@ void IVFBase::copyInvertedListsFromNoRealloc(const InvertedLists* ivf, GpuMemory
         auto& listCodes = deviceListData_[i];
         listCodes->data.assignReservedMemoryPointer((uint8_t*) ivfListDataReservation -> get() + offsetData, curDataSize);
         offsetData += curDataSize;
+        codeTotalSize += curDataSize;
 
         auto& listIndices = deviceListIndices_[i];
         listIndices->data.assignReservedMemoryPointer((uint8_t*) ivfListIndexReservation -> get() + offsetIndex, curIndexSize);
         offsetIndex += curIndexSize;
 
-        addEncodedVectorsToList_(
-                i, ivf->get_codes(i), ivf->get_ids(i), ivf->list_size(i));
+        // addEncodedVectorsToList_(
+        //         i, ivf->get_codes(i), ivf->get_ids(i), ivf->list_size(i));
+        idx_t listId = i;
+        auto codes = ivf->get_codes(i);
+        auto indices = ivf->get_ids(i);
+        uint8_t* translatedCodes = translatedCodes_[i];
+        idx_t numVecs = ivf->list_size(i);
+
+        // This list must already exist
+        FAISS_ASSERT(listId < deviceListData_.size());
+
+        // This list must currently be empty
+        FAISS_ASSERT(listCodes->data.size() == 0);
+        FAISS_ASSERT(listCodes->numVecs == 0);
+
+        // If there's nothing to add, then there's nothing we have to do
+        if (numVecs == 0) {
+            return;
+        }
+
+        // The GPU might have a different layout of the memory
+        auto gpuListSizeInBytes = getGpuVectorsEncodingSize_(numVecs);
+        auto cpuListSizeInBytes = getCpuVectorsEncodingSize_(numVecs);
+
+        if (!translatedCodes) {
+            // Translate the codes as needed to our preferred form
+            std::vector<uint8_t> codesV(cpuListSizeInBytes);
+            std::memcpy(codesV.data(), codes, cpuListSizeInBytes);
+            auto translatedCodes = translateCodesToGpu_(std::move(codesV), numVecs);
+
+            listCodes->data.append(
+                    translatedCodes.data(),
+                    gpuListSizeInBytes,
+                    stream,
+                    true /* exact reserved size */);
+        }
+
+        // test without translation
+        // listCodes->data.append(
+        //         (uint8_t*)codes,
+        //         gpuListSizeInBytes,
+        //         stream,
+        //         true /* exact reserved size */);
+        
+        listCodes->numVecs = numVecs;
+
+        // Handle the indices as well
+        addIndicesFromCpu_(listId, indices, numVecs);
+
+        deviceListDataPointers_.setAt(
+                listId, (void*)listCodes->data.data(), stream);
+        deviceListLengths_.setAt(listId, numVecs, stream);
+
+        // We update this as well, since the multi-pass algorithm uses it
+        maxListLength_ = std::max(maxListLength_, numVecs);
+    }
+
+    if (!translatedCodes_.empty() && translatedCodes_[0]) {
+        uint8_t* listCodes_begin_ptr = deviceListData_[0]->data.data();
+        auto err = cudaMemcpyAsync(
+                listCodes_begin_ptr,
+                translatedCodes_[0],
+                codeTotalSize,
+                cudaMemcpyHostToDevice,
+                stream);
+    }
+}
+
+void IVFBase::copyInvertedListsFromNoRealloc(
+        const InvertedLists* ivf, 
+        std::vector<idx_t>& nlistIds, 
+        std::vector<uint8_t*>& translatedCodes_, 
+        GpuMemoryReservation* ivfListDataReservation, 
+        GpuMemoryReservation* ivfListIndexReservation) {
+    
+    idx_t nlist = ivf ? ivf->nlist : 0;
+    if (nlist == 0) {
+        return;
+    }
+    
+    // reserveInvertedListsDataMemory(ivf);
+    // reserveInvertedListsIndexMemory(ivf);
+
+    // if (!isTranslatedCodesStored_) {
+    //     storeTranslatedCodes(ivf);
+    // }
+
+    size_t codeTotalSize = 0;
+    size_t offsetData = 0;
+    size_t offsetIndex = 0;
+
+    auto stream = resources_->getAsyncCopyStreamCurrentDevice();
+    
+    for (int idx = 0; idx < nlistIds.size(); ++ idx) {
+        idx_t i = nlistIds[idx];
+        size_t curDataSize = getGpuVectorsEncodingSize_(ivf->list_size(i));
+        size_t curIndexSize = ivf->list_size(i) * sizeof(idx_t);
+        // auto curAlloc = GpuMemoryReservation(resources_, ivfListDataReservation_.device, ivfListDataReservation_.stream, (uint8_t*) ivfListDataReservation_.get() + offset, curSize);
+
+        auto& listCodes = deviceListData_[i];
+        listCodes->data.assignReservedMemoryPointer((uint8_t*) ivfListDataReservation -> get() + offsetData, curDataSize);
+        offsetData += curDataSize;
+        codeTotalSize += curDataSize;
+
+        auto& listIndices = deviceListIndices_[i];
+        listIndices->data.assignReservedMemoryPointer((uint8_t*) ivfListIndexReservation -> get() + offsetIndex, curIndexSize);
+        offsetIndex += curIndexSize;
+
+        // addEncodedVectorsToList_(
+        //         i, ivf->get_codes(i), ivf->get_ids(i), ivf->list_size(i));
+        idx_t listId = i;
+        auto codes = ivf->get_codes(i);
+        auto indices = ivf->get_ids(i);
+        uint8_t* translatedCodes = translatedCodes_[i];
+        idx_t numVecs = ivf->list_size(i);
+
+        // This list must already exist
+        FAISS_ASSERT(listId < deviceListData_.size());
+
+        // This list must currently be empty
+        FAISS_ASSERT(listCodes->data.size() == 0);
+        FAISS_ASSERT(listCodes->numVecs == 0);
+
+        // If there's nothing to add, then there's nothing we have to do
+        if (numVecs == 0) {
+            return;
+        }
+
+        // The GPU might have a different layout of the memory
+        auto gpuListSizeInBytes = getGpuVectorsEncodingSize_(numVecs);
+        auto cpuListSizeInBytes = getCpuVectorsEncodingSize_(numVecs);
+
+        if (!translatedCodes) {
+            // Translate the codes as needed to our preferred form
+            std::vector<uint8_t> codesV(cpuListSizeInBytes);
+            std::memcpy(codesV.data(), codes, cpuListSizeInBytes);
+            auto translatedCodes = translateCodesToGpu_(std::move(codesV), numVecs);
+
+            listCodes->data.append(
+                    translatedCodes.data(),
+                    gpuListSizeInBytes,
+                    stream,
+                    true /* exact reserved size */);
+        }
+
+        // test without translation
+        // listCodes->data.append(
+        //         (uint8_t*)codes,
+        //         gpuListSizeInBytes,
+        //         stream,
+        //         true /* exact reserved size */);
+        
+        listCodes->numVecs = numVecs;
+
+        // Handle the indices as well
+        addIndicesFromCpu_(listId, indices, numVecs);
+
+        deviceListDataPointers_.setAt(
+                listId, (void*)listCodes->data.data(), stream);
+        deviceListLengths_.setAt(listId, numVecs, stream);
+
+        // We update this as well, since the multi-pass algorithm uses it
+        maxListLength_ = std::max(maxListLength_, numVecs);
+    }
+
+    if (!translatedCodes_.empty() && translatedCodes_[0]) {
+        uint8_t* listCodes_begin_ptr = deviceListData_[0]->data.data();
+        auto err = cudaMemcpyAsync(
+                listCodes_begin_ptr,
+                translatedCodes_[0],
+                codeTotalSize,
+                cudaMemcpyHostToDevice,
+                stream);
     }
 }
 
@@ -468,6 +667,7 @@ void IVFBase::addEncodedVectorsToList_(
         idx_t listId,
         const void* codes,
         const idx_t* indices,
+        uint8_t* translatedCodes,
         idx_t numVecs) {
     auto stream = resources_->getDefaultStreamCurrentDevice();
 
@@ -488,10 +688,10 @@ void IVFBase::addEncodedVectorsToList_(
     auto gpuListSizeInBytes = getGpuVectorsEncodingSize_(numVecs);
     auto cpuListSizeInBytes = getCpuVectorsEncodingSize_(numVecs);
 
-    if (isTranslatedCodesStored_) {
+    if (translatedCodes) {
         // std::cout << "addEncodedVectorsToList_ " << listId << " " << numVecs << std::endl;
         listCodes->data.append(
-            translatedCodes_[listId],
+            translatedCodes,
             gpuListSizeInBytes,
             stream,
             true /* exact reserved size */);

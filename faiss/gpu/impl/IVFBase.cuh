@@ -71,7 +71,8 @@ class IVFBase {
     /// Copy all inverted lists from a CPU representation to ourselves
     virtual void copyInvertedListsFrom(const InvertedLists* ivf);
 
-    virtual void storeTranslatedCodes(const InvertedLists* ivf);
+    virtual void initTranslatedCodes(std::vector<uint8_t*>& translatedCodes);
+    virtual void storeTranslatedCodes(const InvertedLists* ivf, std::vector<uint8_t*>& translatedCodes);
 
     virtual size_t getInvertedListsDataMemory(const InvertedLists* ivf) const ;
     virtual size_t getInvertedListsIndexMemory(const InvertedLists* ivf) const;
@@ -80,7 +81,15 @@ class IVFBase {
     virtual void reserveInvertedListsIndexMemory(const InvertedLists* ivf);
 
     /// Copy all inverted lists from a CPU representation to ourselves without realloc
-    virtual void copyInvertedListsFromNoRealloc(const InvertedLists* ivf, GpuMemoryReservation* ivfListDataReservation, GpuMemoryReservation* ivfListIndexReservation);
+    virtual void copyInvertedListsFromNoRealloc(const InvertedLists* ivf, 
+                                                std::vector<uint8_t*>& translatedCodes_, 
+                                                GpuMemoryReservation* ivfListDataReservation, 
+                                                GpuMemoryReservation* ivfListIndexReservation);
+    virtual void copyInvertedListsFromNoRealloc(const InvertedLists* ivf, 
+                                                std::vector<idx_t>& nlistIds, 
+                                                std::vector<uint8_t*>& translatedCodes_, 
+                                                GpuMemoryReservation* ivfListDataReservation, 
+                                                GpuMemoryReservation* ivfListIndexReservation);
 
     /// Copy all inverted lists from ourselves to a CPU representation
     virtual void copyInvertedListsTo(InvertedLists* ivf);
@@ -138,6 +147,7 @@ class IVFBase {
             const void* codes,
             // resident on the host
             const idx_t* indices,
+            uint8_t* translatedCodes,
             idx_t numVecs);
 
     /// Performs search in a CPU or GPU coarse quantizer for IVF cells,
@@ -284,8 +294,8 @@ class IVFBase {
     std::vector<std::unique_ptr<DeviceIVFList>> deviceListData_;
     std::vector<std::unique_ptr<DeviceIVFList>> deviceListIndices_;
 
-    bool isTranslatedCodesStored_ = false;
-    std::vector<uint8_t*> translatedCodes_;
+    // bool isTranslatedCodesStored_ = false;
+    // std::vector<uint8_t*> translatedCodes_;
 
     /// If we are storing indices on the CPU (indicesOptions_ is
     /// INDICES_CPU), then this maintains a CPU-side map of what
