@@ -609,21 +609,20 @@ void IVFBase::copyInvertedListsFromNoRealloc(
             // Translate the codes as needed to our preferred form
             std::vector<uint8_t> codesV(cpuListSizeInBytes);
             std::memcpy(codesV.data(), codes, cpuListSizeInBytes);
-            auto translatedCodes = translateCodesToGpu_(std::move(codesV), numVecs);
+            auto curTranslatedCodes = translateCodesToGpu_(std::move(codesV), numVecs);
 
             listCodes->data.append(
-                    translatedCodes.data(),
-                    gpuListSizeInBytes,
-                    stream,
-                    true /* exact reserved size */);
+                curTranslatedCodes.data(),
+                gpuListSizeInBytes,
+                stream,
+                true /* exact reserved size */);
+        } else {
+            listCodes->data.append(
+                translatedCodes,
+                gpuListSizeInBytes,
+                stream,
+                true /* exact reserved size */);
         }
-
-        // test without translation
-        // listCodes->data.append(
-        //         (uint8_t*)codes,
-        //         gpuListSizeInBytes,
-        //         stream,
-        //         true /* exact reserved size */);
         
         listCodes->numVecs = numVecs;
 
@@ -636,16 +635,6 @@ void IVFBase::copyInvertedListsFromNoRealloc(
 
         // We update this as well, since the multi-pass algorithm uses it
         maxListLength_ = std::max(maxListLength_, numVecs);
-    }
-
-    if (!translatedCodes_.empty() && translatedCodes_[0]) {
-        uint8_t* listCodes_begin_ptr = deviceListData_[0]->data.data();
-        auto err = cudaMemcpyAsync(
-                listCodes_begin_ptr,
-                translatedCodes_[0],
-                codeTotalSize,
-                cudaMemcpyHostToDevice,
-                stream);
     }
 }
 

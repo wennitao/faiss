@@ -189,6 +189,15 @@ void GpuIndexIVFPQ::copyInvertedLists(
     index_ -> copyInvertedListsFromNoRealloc(index->invlists, translatedCodes, ivfListDataReservation, ivfListIndexReservation);
 }
 
+void GpuIndexIVFPQ::copyInvertedLists(
+        const faiss::IndexIVFPQ* index,
+        std::vector<uint8_t*>& translatedCodes,
+        std::vector<idx_t>& nlistIds, 
+        GpuMemoryReservation* ivfListDataReservation,
+        GpuMemoryReservation* ivfListIndexReservation) {
+    index_ -> copyInvertedListsFromNoRealloc(index->invlists, nlistIds, translatedCodes, ivfListDataReservation, ivfListIndexReservation);
+}
+
 void GpuIndexIVFPQ::copyFrom(const faiss::IndexIVFPQ* index) {
     DeviceScope scope(config_.device);
 
