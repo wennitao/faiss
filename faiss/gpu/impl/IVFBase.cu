@@ -465,11 +465,13 @@ void IVFBase::copyInvertedListsFromNoRealloc(const InvertedLists* ivf, std::vect
         // auto curAlloc = GpuMemoryReservation(resources_, ivfListDataReservation_.device, ivfListDataReservation_.stream, (uint8_t*) ivfListDataReservation_.get() + offset, curSize);
 
         auto& listCodes = deviceListData_[i];
+        listCodes->numVecs = 0;
         listCodes->data.assignReservedMemoryPointer((uint8_t*) ivfListDataReservation -> get() + offsetData, curDataSize);
         offsetData += curDataSize;
         codeTotalSize += curDataSize;
 
         auto& listIndices = deviceListIndices_[i];
+        listIndices->numVecs = 0;
         listIndices->data.assignReservedMemoryPointer((uint8_t*) ivfListIndexReservation -> get() + offsetIndex, curIndexSize);
         offsetIndex += curIndexSize;
 
@@ -573,11 +575,13 @@ void IVFBase::copyInvertedListsFromNoRealloc(
         // auto curAlloc = GpuMemoryReservation(resources_, ivfListDataReservation_.device, ivfListDataReservation_.stream, (uint8_t*) ivfListDataReservation_.get() + offset, curSize);
 
         auto& listCodes = deviceListData_[i];
+        listCodes->numVecs = 0;
         listCodes->data.assignReservedMemoryPointer((uint8_t*) ivfListDataReservation -> get() + offsetData, curDataSize);
         offsetData += curDataSize;
         codeTotalSize += curDataSize;
 
         auto& listIndices = deviceListIndices_[i];
+        listIndices->numVecs = 0;
         listIndices->data.assignReservedMemoryPointer((uint8_t*) ivfListIndexReservation -> get() + offsetIndex, curIndexSize);
         offsetIndex += curIndexSize;
 
