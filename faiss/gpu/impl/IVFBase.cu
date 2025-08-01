@@ -602,7 +602,7 @@ void IVFBase::copyInvertedListsFromNoRealloc(
 
         // If there's nothing to add, then there's nothing we have to do
         if (numVecs == 0) {
-            return;
+            continue;
         }
 
         // The GPU might have a different layout of the memory
