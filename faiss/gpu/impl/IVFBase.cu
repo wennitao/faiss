@@ -568,6 +568,12 @@ void IVFBase::copyInvertedListsFromNoRealloc(
 
     auto stream = resources_->getAsyncCopyStreamCurrentDevice();
     
+    std::vector<void*> listIndexPointers, listDataPointers;
+    std::vector<idx_t> listLengths;
+    listIndexPointers.resize (nlist, nullptr);
+    listDataPointers.resize (nlist, nullptr);
+    listLengths.resize (nlist, 0);
+
     for (int idx = 0; idx < nlistIds.size(); ++ idx) {
         idx_t i = nlistIds[idx];
         size_t curDataSize = getGpuVectorsEncodingSize_(ivf->list_size(i));
@@ -631,15 +637,96 @@ void IVFBase::copyInvertedListsFromNoRealloc(
         listCodes->numVecs = numVecs;
 
         // Handle the indices as well
-        addIndicesFromCpu_(listId, indices, numVecs);
+        // addIndicesFromCpu_(listId, indices, numVecs);
+        // This list must currently be empty
+        FAISS_ASSERT(listIndices->data.size() == 0);
+        FAISS_ASSERT(listIndices->numVecs == 0);
 
-        deviceListDataPointers_.setAt(
-                listId, (void*)listCodes->data.data(), stream);
-        deviceListLengths_.setAt(listId, numVecs, stream);
+        if (indicesOptions_ == INDICES_32_BIT) {
+            // Make sure that all indices are in bounds
+            // std::vector<int> indices32(numVecs);
+            int* indices32 ;
+            cudaError_t err = cudaMallocHost (
+                    (void**)&indices32,
+                    numVecs * sizeof(int), 
+                    cudaHostAllocPortable);
+            for (idx_t i = 0; i < numVecs; ++i) {
+                auto ind = indices[i];
+                FAISS_ASSERT(ind <= (idx_t)std::numeric_limits<int>::max());
+                indices32[i] = (int)ind;
+            }
+
+            static_assert(sizeof(int) == 4, "");
+
+            listIndices->data.append(
+                    (uint8_t*)indices32,
+                    numVecs * sizeof(int),
+                    stream,
+                    true /* exact reserved size */);
+
+            // We have added the given indices to the raw data vector; update the
+            // count as well
+            listIndices->numVecs = numVecs;
+        } else if (indicesOptions_ == INDICES_64_BIT) {
+            #ifdef FAISS_DEBUG
+            printf ("addIndicesFromCpu_ 64-bit\n");
+            #endif
+            listIndices->data.append(
+                    (uint8_t*)indices,
+                    numVecs * sizeof(idx_t),
+                    stream,
+                    true /* exact reserved size */);
+
+            // We have added the given indices to the raw data vector; update the
+            // count as well
+            listIndices->numVecs = numVecs;
+        } else if (indicesOptions_ == INDICES_CPU) {
+            // indices are stored on the CPU
+            FAISS_ASSERT(listId < listOffsetToUserIndex_.size());
+
+            auto& userIndices = listOffsetToUserIndex_[listId];
+            userIndices.insert(userIndices.begin(), indices, indices + numVecs);
+        } else {
+            // indices are not stored
+            FAISS_ASSERT(indicesOptions_ == INDICES_IVF);
+        }
+
+        // deviceListIndexPointers_.setAt(
+        //         listId, (void*)listIndices->data.data(), stream);
+        listIndexPointers[listId] = (void*)listIndices->data.data();
+
+        // deviceListDataPointers_.setAt(
+        //         listId, (void*)listCodes->data.data(), stream);
+        listDataPointers[listId] = (void*)listCodes->data.data();
+
+        // deviceListLengths_.setAt(listId, numVecs, stream);
+        listLengths[listId] = numVecs;
 
         // We update this as well, since the multi-pass algorithm uses it
         maxListLength_ = std::max(maxListLength_, numVecs);
     }
+
+    auto err = cudaMemcpyAsync(
+        deviceListDataPointers_.data(),
+        listDataPointers.data(),
+        nlist * sizeof(void*),
+        cudaMemcpyHostToDevice,
+        stream);
+    FAISS_ASSERT(err == cudaSuccess);
+    err = cudaMemcpyAsync(
+        deviceListIndexPointers_.data(),
+        listIndexPointers.data(),
+        nlist * sizeof(void*),
+        cudaMemcpyHostToDevice,
+        stream);
+    FAISS_ASSERT(err == cudaSuccess);
+    err = cudaMemcpyAsync(
+        deviceListLengths_.data(),
+        listLengths.data(),
+        nlist * sizeof(idx_t),
+        cudaMemcpyHostToDevice,
+        stream);
+    FAISS_ASSERT(err == cudaSuccess);
 }
 
 void IVFBase::copyInvertedListsTo(InvertedLists* ivf) {
@@ -725,7 +812,7 @@ void IVFBase::addIndicesFromCpu_(
         idx_t listId,
         const idx_t* indices,
         idx_t numVecs) {
-    auto stream = resources_->getDefaultStreamCurrentDevice();
+    auto stream = resources_->getAsyncCopyStreamCurrentDevice();
 
     // This list must currently be empty
     auto& listIndices = deviceListIndices_[listId];
